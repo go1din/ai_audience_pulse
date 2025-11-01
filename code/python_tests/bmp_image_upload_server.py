@@ -35,10 +35,7 @@ def bmp():
             return jsonify({"error": "No image data provided"}), 400
         
         # Open image from binary data
-        image = Image.open(io.BytesIO(image_data))
-        plt.figure()
-        plt.imshow(image)
-        plt.savefig(f'{count}.jpg')
+        Image.open(io.BytesIO(image_data)).save(f'{count}.jpg')
 
         count = (count + 1) % modulo
         
