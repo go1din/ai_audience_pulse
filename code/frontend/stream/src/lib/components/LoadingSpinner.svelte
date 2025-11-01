@@ -25,4 +25,4 @@
   style="--size: {size}; --color: {color};"
   aria-label="Loading..."
   role="status"
-></div>]]>
+></div>

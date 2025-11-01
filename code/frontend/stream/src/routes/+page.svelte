@@ -409,7 +409,7 @@
       {#if isLoading}
         <div class="loading-overlay">
           <LoadingSpinner size="64px" color="#60a5fa" />
-          <span class="loading-text">Initializing camera...</span>
+          <span class="loading-text">Initializing camera</span>
         </div>
       {/if}
 
