@@ -8,6 +8,7 @@
   import Stats from '$lib/components/Stats.svelte';
   import FloatingReactions from '$lib/components/FloatingReactions.svelte';
   import SilenceIndicator from '$lib/components/SilenceIndicator.svelte';
+  import ColorLegend from '$lib/components/ColorLegend.svelte';
 
   let stream: MediaStream;
   let videoRef: HTMLVideoElement;
@@ -27,8 +28,10 @@
   
   let silenceInfo = {
     isSilent: false,
-    position: { x: 0, y: 0 }
+    position: { x: 0, y: 0 },
+    audioLevel: 0
   };
+  let reactionIntensity = 0;
 
   async function getStream() {
     try {
@@ -89,7 +92,9 @@
 
     const chart = initChart(chartCanvas);
     ws = connectWebSocket((data) => {
-      silenceInfo = updateChart(chart, data.timeline);
+      // Calculate total reaction intensity
+      reactionIntensity = data.emojis.thumbs + data.emojis.applause + data.emojis.smile;
+      silenceInfo = updateChart(chart, data.timeline, reactionIntensity);
       emojiCounts = data.emojis;
 
       if (data.reactionEvents) {
@@ -294,6 +299,15 @@
     border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
+  .legend-wrapper {
+    position: absolute;
+    top: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    transition: opacity 0.3s ease;
+  }
+
   .stats-wrapper:hover {
     opacity: 1;
   }
@@ -453,6 +467,10 @@
         />
       </div>
       
+      <div class="legend-wrapper" class:hidden={!isRecording}>
+        <ColorLegend currentIntensity={silenceInfo.audioLevel} />
+      </div>
+
       <div class="stats-wrapper" class:hidden={!isRecording}>
         <Stats counts={emojiCounts} />
       </div>
