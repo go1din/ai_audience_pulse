@@ -457,7 +457,7 @@
         <Stats counts={emojiCounts} />
       </div>
 
-      <div class:hidden={!isRecording}>
+      <div class="floating-reactions" class:hidden={!isRecording}>
         <FloatingReactions reactions={reactionEvents} />
       </div>
     </div>
