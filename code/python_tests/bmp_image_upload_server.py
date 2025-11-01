@@ -27,7 +27,7 @@ def bmp():
         image = Image.open(io.BytesIO(image_data))
         plt.figure()
         plt.imshow(image)
-        plt.savefig(f'{count}.png')
+        plt.savefig(f'{count}.jpg')
 
         count += 1
         
