@@ -1,6 +1,7 @@
 import sounddevice as sd
 import numpy as np
 import queue
+import requests
 import threading
 import time
 import tensorflow as tf
@@ -19,7 +20,10 @@ class AudioProcessor:
         rms = np.sqrt(np.mean(audio**2))
         print(f"[proc] chunk rms={rms:.4f}, shape={audio.shape}, sr={sr}")
         #sd.write("output.wav", audio, sr)
-        print(self.classifier.classification_score_wav_data(audio * tf.int16.max))
+        audio_score = self.classifier.classification_score_wav_data(audio * tf.int16.max)
+        print(audio_score)
+        print(audio_score.to_json_string())
+        requests.post("http://192.168.20.166:5000/audio/score", json=audio_score.to_json_string())
 
 
 def stream_audio_to_processor(processor: AudioProcessor,

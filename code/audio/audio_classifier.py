@@ -1,3 +1,4 @@
+import json
 import numpy as np
 from dataclasses import dataclass
 import tensorflow as tf
@@ -9,6 +10,12 @@ class AudioClassificationResult:
     """Container for classification scores."""
     clapping_score: float
     laughter_score: float
+
+    def to_json_string(self):
+        return json.dumps({
+            "clapping_score": float(self.clapping_score),
+            "laughter_score": float(self.laughter_score)
+        })
 
 
 class AudioClassifier:

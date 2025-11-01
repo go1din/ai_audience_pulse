@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.3.4",
+    "requests>=2.32.5",
     "scipy>=1.16.3",
     "sounddevice>=0.5.3",
     "tensorflow>=2.20.0",
