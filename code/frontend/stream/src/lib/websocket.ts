@@ -36,7 +36,11 @@ function generateMockData(): WebSocketData {
   }
 
   return {
-    timeline: Array(10).fill(0).map(() => Math.random() * 100),
+    timeline: Array(32).fill(0).map((_, i) => {
+      // Create a smooth wave with some randomness
+      const base = 0.5 + 0.4 * Math.sin((Date.now() / 500) + i / 3);
+      return Math.max(0, Math.min(1, base + (Math.random() - 0.5) * 0.15));
+    }),
     emojis: {
       thumbs: randomValue(),
       applause: randomValue(),
