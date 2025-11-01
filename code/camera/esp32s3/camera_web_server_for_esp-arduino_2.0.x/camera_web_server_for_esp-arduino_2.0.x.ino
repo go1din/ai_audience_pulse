@@ -1,5 +1,8 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <I2S.h>
+
+#include "esp_http_client.h"
 
 //
 // WARNING!!! PSRAM IC required for UXGA resolution and high JPEG quality
@@ -22,8 +25,131 @@
 const char *ssid = "memox.world";
 const char *password = "worXperience!";
 
+// Optional: define how many images to capture
+#define MAX_IMAGES 10
+
+// make changes as needed
+#define RECORD_TIME   2  // seconds, The maximum value is 240
+
+// do not change for best
+#define SAMPLE_RATE 16000U
+#define SAMPLE_BITS 16
+#define VOLUME_GAIN 2
+
+
 void startCameraServer();
 void setupLedFlash(int pin);
+void record_audio();
+
+#define MAX_HTTP_RECV_BUFFER 512
+#define MAX_HTTP_OUTPUT_BUFFER 2048
+static const char *TAG = "HTTP_CLIENT";
+
+
+esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    static char *output_buffer;  // Buffer to store response of http request from event handler
+    static int output_len;       // Stores number of bytes read
+/*    switch(evt->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+            break;
+        case HTTP_EVENT_ON_CONNECTED:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+            break;
+        case HTTP_EVENT_HEADER_SENT:
+            ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+            break;
+        case HTTP_EVENT_ON_DATA:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+            // Clean the buffer in case of a new request
+            if (output_len == 0 && evt->user_data) {
+                // we are just starting to copy the output data into the use
+                memset(evt->user_data, 0, MAX_HTTP_OUTPUT_BUFFER);
+            }
+            *//*
+             *  Check for chunked encoding is added as the URL for chunked encoding used in this example returns binary data.
+             *  However, event handler can also be used in case chunked encoding is used.
+             *//*
+            if (!esp_http_client_is_chunked_response(evt->client)) {
+                // If user_data buffer is configured, copy the response into the buffer
+                int copy_len = 0;
+                if (evt->user_data) {
+                    // The last byte in evt->user_data is kept for the NULL character in case of out-of-bound access.
+                    copy_len = std::min(evt->data_len, (MAX_HTTP_OUTPUT_BUFFER - output_len));
+                    if (copy_len) {
+                        memcpy(evt->user_data + output_len, evt->data, copy_len);
+                    }
+                } else {
+                    int content_len = esp_http_client_get_content_length(evt->client);
+                    if (output_buffer == NULL) {
+                        // We initialize output_buffer with 0 because it is used by strlen() and similar functions therefore should be null terminated.
+                        output_buffer = (char *) calloc(content_len + 1, sizeof(char));
+                        output_len = 0;
+                        if (output_buffer == NULL) {
+                            ESP_LOGE(TAG, "Failed to allocate memory for output buffer");
+                            return ESP_FAIL;
+                        }
+                    }
+                    copy_len = std::min(evt->data_len, (content_len - output_len));
+                    if (copy_len) {
+                        memcpy(output_buffer + output_len, evt->data, copy_len);
+                    }
+                }
+                output_len += copy_len;
+            }
+
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+            if (output_buffer != NULL) {
+#if CONFIG_EXAMPLE_ENABLE_RESPONSE_BUFFER_DUMP
+                ESP_LOG_BUFFER_HEX(TAG, output_buffer, output_len);
+#endif
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            output_len = 0;
+            break;
+        case HTTP_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
+            int mbedtls_err = 0;
+            //esp_err_t err = esp_tls_get_and_clear_last_error((esp_tls_error_handle_t)evt->data, &mbedtls_err, NULL);
+            //if (err != 0) {
+            //    ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
+            //    ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
+            //}
+            if (output_buffer != NULL) {
+                free(output_buffer);
+                output_buffer = NULL;
+            }
+            output_len = 0;
+            break;
+//        case HTTP_EVENT_REDIRECT:
+//            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+//            esp_http_client_set_header(evt->client, "From", "user@example.com");
+//            esp_http_client_set_header(evt->client, "Accept", "text/html");
+//            esp_http_client_set_redirection(evt->client);
+//            break;
+    }*/
+    return ESP_OK;
+}
+
+esp_http_client_config_t http_client_config = {
+    .host = "http://192.168.23.222",
+    .port = 5000,
+    .path = "bmp",
+    //.query = "esp",
+    //.user_data = local_response_buffer,        // Pass address of local buffer to get response
+    //.disable_auto_redirect = true,
+    //.method = HTTP_METHOD_POST,
+    .event_handler = _http_event_handler,
+};
+
+
 
 void setup() {
   Serial.begin(115200);
@@ -126,14 +252,120 @@ void setup() {
   Serial.println("");
   Serial.println("WiFi connected");
 
-  startCameraServer();
+  // startCameraServer();
 
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
+
+  // while (!Serial) ;
+  // I2S.setAllPins(-1, 42, 41, -1, -1);
+  // if (!I2S.begin(PDM_MONO_MODE, SAMPLE_RATE, SAMPLE_BITS)) {
+  //   Serial.println("Failed to initialize I2S!");
+  //   while (1) ;
+  // }
 }
 
-void loop() {
+void capture_images()
+{
+  esp_http_client_handle_t http_client = esp_http_client_init(&http_client_config);
+
+  static int imageCount = 0;
+  while(imageCount < MAX_IMAGES) 
+  {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Camera capture failed");
+      exit;
+    }
+
+    // BMP conversion logic would go here
+    uint8_t * buf = NULL;
+    size_t buf_len = 0;
+    bool converted = frame2bmp(fb, &buf, &buf_len);
+    esp_camera_fb_return(fb);
+    if(!converted){
+        log_e("BMP Conversion failed");
+        // httpd_resp_send_500(req);
+        // return ESP_FAIL;
+      }
+      // res = httpd_resp_send(req, (const char *)buf, buf_len);
+      free(buf);
+  #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+      uint64_t fr_end = esp_timer_get_time();
+  #endif
+      log_i("BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
+      // return res;
+
+    // For simplicity, we just print the size
+    Serial.printf("Captured image: %d bytes\n", fb->len);
+
+    esp_http_client_set_url(http_client, "http://192.168.23.222:5000/bmp");
+    esp_http_client_set_method(http_client, HTTP_METHOD_POST);
+    esp_http_client_set_header(http_client, "Content-Type", "image/x-windows-bmp");
+    esp_http_client_set_post_field(http_client, (const char*)fb->buf, fb->len);
+
+    esp_err_t err = esp_http_client_perform(http_client);
+
+    if(err == ESP_OK) 
+    {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
+            esp_http_client_get_status_code(http_client),
+            esp_http_client_get_content_length(http_client));
+    } 
+    else 
+    {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+    
+    esp_camera_fb_return(fb);
+    imageCount++;
+    delay(1000); // wait 1 second between captures
+  }
+
+  esp_http_client_cleanup(http_client);
+}
+
+
+void record_audio()
+{
+  uint32_t sample_size = 0;
+  uint32_t record_size = (SAMPLE_RATE * SAMPLE_BITS / 8) * RECORD_TIME;
+  uint8_t *rec_buffer = NULL;
+  Serial.printf("Ready to start recording ...\n");
+
+  // PSRAM malloc for recording
+  rec_buffer = (uint8_t *)ps_malloc(record_size);
+  if (rec_buffer == NULL) {
+    Serial.printf("malloc failed!\n");
+    while(1) ;
+  }
+  Serial.printf("Buffer: %d bytes\n", ESP.getPsramSize() - ESP.getFreePsram());
+
+  // Start recording
+  esp_i2s::i2s_read(esp_i2s::I2S_NUM_0, rec_buffer, record_size, &sample_size, portMAX_DELAY);
+  if (sample_size == 0) {
+    Serial.printf("Record Failed!\n");
+  } else {
+    Serial.printf("Record %d bytes\n", sample_size);
+  }
+
+  // Increase volume
+  for (uint32_t i = 0; i < sample_size; i += SAMPLE_BITS/8) {
+    (*(uint16_t *)(rec_buffer+i)) <<= VOLUME_GAIN;
+  }
+
+  free(rec_buffer);
+  Serial.printf("The recording is over.\n");
+}
+
+
+void loop() 
+{
   // Do nothing. Everything is done in another task by the web server
-  delay(10000);
+  // delay(10000);
+
+  capture_images();
+
+  //record_audio();
 }
