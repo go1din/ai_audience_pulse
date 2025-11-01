@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Detection</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        html,body { height:100%; margin:0; background:Canvas; color:CanvasText; }
+        .video-container {
+          position: fixed;
+          top: 64px;
+          left: 0;
+          width: 100%;
+          height: calc(100% - 64px);
+          background: #000;
+          z-index: 2;
+        }
+        #canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          z-index: 1;
+        }
+        #webcam {
+          position: absolute;
+          visibility: hidden;
+        }
+        #gesture-text {
+          position: absolute;
+          bottom: 2rem;
+          right: 2rem;
+          font-size: 4rem;
+          z-index: 10;
+          color: white;
+          text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+          transition: bottom 1.5s ease-out;
+        }
+        #gesture-text.slide-up {
+          bottom: 280px;
+        }
+        .noise-bar-container {
+          position: absolute;
+          left: 20px;
+          top: 40%;
+          transform: translateY(-50%);
+          width: 80px;
+          height: 500px;
+          background: rgba(0, 0, 0, 0.5);
+          border-radius: 40px;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          z-index: 10;
+          overflow: hidden;
+          transition: top 1.5s ease-out;
+        }
+        .noise-bar-container.slide-up {
+          top: 30%;
+        }
+        .noise-bar-fill {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          width: 100%;
+          height: 0%;
+          background: linear-gradient(to top, 
+            #00ff00 0%, 
+            #7fff00 20%, 
+            #ffff00 40%, 
+            #ff7f00 60%, 
+            #ff0000 80%, 
+            #ff0000 100%);
+          transition: height 0.1s ease-out;
+          border-radius: 38px;
+        }
+        .noise-bar-threshold {
+          position: absolute;
+          bottom: 80%;
+          left: 0;
+          width: 100%;
+          height: 3px;
+          background: white;
+          box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+          z-index: 1;
+        }
+        .noise-bar-label {
+          position: absolute;
+          top: -30px;
+          left: 50%;
+          transform: translateX(-50%);
+          color: white;
+          font-size: 16px;
+          font-family: 'Roboto', sans-serif;
+          font-weight: 500;
+          white-space: nowrap;
+          text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .noise-bar-percentage {
+          position: absolute;
+          bottom: -30px;
+          left: 50%;
+          transform: translateX(-50%);
+          color: white;
+          font-size: 18px;
+          font-family: 'Roboto', sans-serif;
+          font-weight: 700;
+          text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .navbar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 64px;
+          background: rgba(25, 118, 210, 0.95);
+          backdrop-filter: blur(10px);
+          box-shadow: 0 2px 4px rgba(0,0,0,.2);
+          z-index: 10001;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 24px;
+          font-family: 'Roboto', sans-serif;
+        }
+        .navbar-menu {
+          display: flex;
+          align-items: center;
+          margin-right: 24px;
+        }
+        .navbar-title {
+          color: white;
+          font-size: 20px;
+          font-weight: 500;
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          min-width: 0;
+        }
+        .navbar-actions {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+        }
+        .navbar-icon {
+          color: white;
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 50%;
+          transition: background-color 0.2s;
+        }
+        .navbar-icon:hover {
+          background-color: rgba(255, 255, 255, 0.1);
+        }
+        .camera-overlay {
+          position: fixed;
+          top: 64px;
+          right: 20px;
+          width: 320px;
+          height: 240px;
+          background: white;
+          z-index: 10002;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+          transform: translateY(-100%);
+          opacity: 0;
+          transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+          pointer-events: none;
+        }
+        .camera-overlay.show {
+          transform: translateY(0);
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .camera-overlay-content {
+          position: relative;
+          width: 100%;
+          height: 100%;
+        }
+        .camera-overlay-content img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .camera-overlay-close {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          color: white;
+          background: rgba(0, 0, 0, 0.5);
+          border-radius: 50%;
+          padding: 4px;
+          cursor: pointer;
+          z-index: 10003;
+          font-size: 20px;
+        }
+        .camera-overlay-close:hover {
+          background: rgba(0, 0, 0, 0.8);
+        }
+        .camera-overlay-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: transparent;
+          z-index: 10001;
+          display: none;
+        }
+        .camera-overlay-backdrop.show {
+          display: block;
+        }
+        .camera-icon-group {
+          display: flex;
+          gap: 4px;
+          align-items: center;
+        }
+        .camera-icon-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .camera-icon-label {
+          position: absolute;
+          top: 2px;
+          right: 2px;
+          font-size: 10px;
+          color: white;
+          font-family: 'Roboto', sans-serif;
+          font-weight: 700;
+          background: #ff9800;
+          border-radius: 50%;
+          width: 16px;
+          height: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+        body {
+          padding-top: 64px;
+        }
+        .youtube-controls {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          width: 100%;
+          background: rgba(0, 0, 0, 0.85);
+          backdrop-filter: blur(10px);
+          padding: 12px 20px;
+          padding-top: 16px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          z-index: 10001;
+          box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+          transform: translateY(0);
+          transition: transform 1.5s ease-out;
+          opacity: 1 !important;
+          visibility: visible !important;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+        .youtube-controls .video-progress {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 4px;
+          background: rgba(255, 255, 255, 0.2);
+          cursor: pointer;
+        }
+        .youtube-controls .video-progress-bar {
+          height: 100%;
+          background: #ff0000;
+          width: 35%;
+          transition: width 0.1s;
+        }
+        .youtube-controls .video-controls-left,
+        .youtube-controls .video-controls-center,
+        .youtube-controls .video-controls-right {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          position: relative;
+          z-index: 1;
+        }
+        .youtube-controls .video-controls-center {
+          flex: 1;
+          justify-content: center;
+        }
+        .youtube-controls .video-time {
+          color: white;
+          font-size: 13px;
+          font-family: 'Roboto', sans-serif;
+          white-space: nowrap;
+          margin: 0 4px;
+        }
+        .youtube-controls .control-button {
+          color: white;
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 50%;
+          transition: background-color 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .youtube-controls .control-button:hover {
+          background-color: rgba(255, 255, 255, 0.1);
+        }
+        .youtube-controls .control-button .material-icons {
+          font-size: 24px;
+        }
+        #wrap {
+          position: fixed;
+          bottom: 70px;
+          left: 0;
+          right: 0;
+          width: 100%;
+          max-width: none;
+          margin: 0;
+          padding: 20px;
+          padding-top: 0;
+          background: rgba(0, 0, 0, 0.7);
+          backdrop-filter: blur(10px);
+          z-index: 10000;
+          transform: translateY(100%);
+          transition: transform 1.5s ease-out;
+        }
+        #wrap.show {
+          transform: translateY(100%);
+        }
+        .youtube-controls:hover ~ #wrap.show {
+          transform: translateY(0);
+        }
+        #wrap.show:hover {
+          transform: translateY(0);
+        }
+        #wrap canvas {
+          max-height: 200px;
+        }
+        @media (max-width: 768px) {
+          .navbar-title {
+            font-size: 16px;
+          }
+          .navbar-menu {
+            margin-right: 12px;
+          }
+          .navbar-actions {
+            gap: 8px;
+          }
+          .youtube-controls {
+            padding: 10px 12px;
+            padding-top: 14px;
+            gap: 8px;
+          }
+          .youtube-controls .video-time {
+            font-size: 11px;
+          }
+          .youtube-controls .control-button .material-icons {
+            font-size: 20px;
+          }
+          #wrap canvas {
+            max-height: 150px;
+          }
+        }
+    </style>
+    <script
+      src="https://cdn.jsdelivr.net/npm/fingerpose@0.1.0/dist/fingerpose.min.js"
+      type="text/javascript"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.2.0/dist/tf-core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.2.0/dist/tf-converter.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.2.0/dist/tf-backend-webgl.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection@2.0.1/dist/hand-pose-detection.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+      <div class="navbar-menu">
+        <span class="material-icons navbar-icon">menu</span>
+      </div>
+      <div class="navbar-title">Big sister is watching you</div>
+      <div class="navbar-actions">
+        <div class="camera-icon-group">
+          <div class="camera-icon-wrapper">
+            <span class="material-icons navbar-icon camera-icon" data-camera="1">photo_camera</span>
+            <span class="camera-icon-label" id="camera-count-1">0</span>
+          </div>
+          <div class="camera-icon-wrapper">
+            <span class="material-icons navbar-icon camera-icon" data-camera="2">photo_camera</span>
+            <span class="camera-icon-label" id="camera-count-2">0</span>
+          </div>
+          <div class="camera-icon-wrapper">
+            <span class="material-icons navbar-icon camera-icon" data-camera="3">photo_camera</span>
+            <span class="camera-icon-label" id="camera-count-3">0</span>
+          </div>
+          <div class="camera-icon-wrapper">
+            <span class="material-icons navbar-icon camera-icon" data-camera="4">photo_camera</span>
+            <span class="camera-icon-label" id="camera-count-4">0</span>
+          </div>
+        </div>
+        <span class="material-icons navbar-icon">search</span>
+        <div class="camera-icon-wrapper">
+          <span class="material-icons navbar-icon">campaign</span>
+          <span class="camera-icon-label" id="speaker-notification">0</span>
+        </div>
+        <span class="material-icons navbar-icon">account_circle</span>
+      </div>
+    </nav>
+    
+    <div class="camera-overlay-backdrop" id="camera-backdrop"></div>
+    
+    <div class="camera-overlay" id="camera-overlay-1">
+      <span class="material-icons camera-overlay-close overlay-close" data-overlay="1">close</span>
+      <div class="camera-overlay-content">
+        <img id="camera-feed-1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%231976d2' width='800' height='600'/%3E%3Ctext fill='white' font-size='48' font-family='Arial' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ECamera 1%3C/text%3E%3C/svg%3E" alt="Camera 1">
+      </div>
+    </div>
+    
+    <div class="camera-overlay" id="camera-overlay-2">
+      <span class="material-icons camera-overlay-close overlay-close" data-overlay="2">close</span>
+      <div class="camera-overlay-content">
+        <img id="camera-feed-2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23388e3c' width='800' height='600'/%3E%3Ctext fill='white' font-size='48' font-family='Arial' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ECamera 2%3C/text%3E%3C/svg%3E" alt="Camera 2">
+      </div>
+    </div>
+    
+    <div class="camera-overlay" id="camera-overlay-3">
+      <span class="material-icons camera-overlay-close overlay-close" data-overlay="3">close</span>
+      <div class="camera-overlay-content">
+        <img id="camera-feed-3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23f57c00' width='800' height='600'/%3E%3Ctext fill='white' font-size='48' font-family='Arial' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ECamera 3%3C/text%3E%3C/svg%3E" alt="Camera 3">
+      </div>
+    </div>
+    
+    <div class="camera-overlay" id="camera-overlay-4">
+      <span class="material-icons camera-overlay-close overlay-close" data-overlay="4">close</span>
+      <div class="camera-overlay-content">
+        <img id="camera-feed-4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect fill='%23c62828' width='800' height='600'/%3E%3Ctext fill='white' font-size='48' font-family='Arial' x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle'%3ECamera 4%3C/text%3E%3C/svg%3E" alt="Camera 4">
+      </div>
+    </div>
+    <div class="video-container">
+        <canvas id="canvas"></canvas>
+        <video id="webcam"></video>
+        <h1 id="gesture-text"></h1>
+        <div class="noise-bar-container">
+          <div class="noise-bar-label">🎤 NOISE</div>
+          <div class="noise-bar-threshold"></div>
+          <div class="noise-bar-fill" id="noise-bar-fill"></div>
+          <div class="noise-bar-percentage" id="noise-bar-percentage">0%</div>
+        </div>
+    </div>
+    
+    <div class="youtube-controls">
+      <div class="video-progress">
+        <div class="video-progress-bar"></div>
+      </div>
+      <div class="video-controls-left">
+        <span class="material-icons control-button youtube-play-btn">play_arrow</span>
+        <span class="material-icons control-button">replay_10</span>
+        <span class="material-icons control-button">forward_10</span>
+        <span class="material-icons control-button">volume_up</span>
+        <div class="video-time">0:00 / 5:00</div>
+      </div>
+      <div class="video-controls-center">
+        <!-- Center space for potential future controls -->
+      </div>
+      <div class="video-controls-right">
+        <span class="material-icons control-button">settings</span>
+        <span class="material-icons control-button">closed_caption</span>
+        <span class="material-icons control-button">fullscreen</span>
+      </div>
+    </div>
+    
+    <div id="wrap">
+      <canvas id="c"></canvas>
+    </div>
+    
+    <script>
+      // Camera overlay functionality
+      const cameraIcons = document.querySelectorAll('.camera-icon');
+      const overlayCloses = document.querySelectorAll('.overlay-close');
+      const backdrop = document.getElementById('camera-backdrop');
+      
+      cameraIcons.forEach(icon => {
+        icon.addEventListener('click', function() {
+          const cameraNum = this.getAttribute('data-camera');
+          backdrop.classList.add('show');
+          document.getElementById(`camera-overlay-${cameraNum}`).classList.add('show');
+        });
+      });
+      
+      overlayCloses.forEach(closeBtn => {
+        closeBtn.addEventListener('click', function() {
+          const overlayNum = this.getAttribute('data-overlay');
+          document.getElementById(`camera-overlay-${overlayNum}`).classList.remove('show');
+          backdrop.classList.remove('show');
+        });
+      });
+      
+      // Close overlay when clicking on backdrop
+      backdrop.addEventListener('click', function() {
+        document.querySelectorAll('.camera-overlay').forEach(overlay => {
+          overlay.classList.remove('show');
+        });
+        backdrop.classList.remove('show');
+      });
+      
+      // Slide up gesture text when timeline is visible
+      const wrap = document.getElementById('wrap');
+      const youtubeControls = document.querySelector('.youtube-controls');
+      const gestureText = document.getElementById('gesture-text');
+      const noiseBar = document.querySelector('.noise-bar-container');
+      
+      // Detect when timeline becomes visible (on hover)
+      const checkTimelineVisibility = () => {
+        const wrapRect = wrap.getBoundingClientRect();
+        const isTimelineVisible = wrapRect.top < window.innerHeight;
+        
+        if (isTimelineVisible) {
+          gestureText.classList.add('slide-up');
+          noiseBar.classList.add('slide-up');
+        } else {
+          gestureText.classList.remove('slide-up');
+          noiseBar.classList.remove('slide-up');
+        }
+      };
+      
+      // Listen for mouse events on controls and wrap
+      youtubeControls.addEventListener('mouseenter', () => {
+        setTimeout(checkTimelineVisibility, 100);
+      });
+      
+      wrap.addEventListener('mouseenter', () => {
+        gestureText.classList.add('slide-up');
+        noiseBar.classList.add('slide-up');
+      });
+      
+      wrap.addEventListener('mouseleave', () => {
+        setTimeout(() => {
+          if (!wrap.matches(':hover') && !youtubeControls.matches(':hover')) {
+            gestureText.classList.remove('slide-up');
+            noiseBar.classList.remove('slide-up');
+          }
+        }, 1500);
+      });
+      
+      youtubeControls.addEventListener('mouseleave', () => {
+        setTimeout(() => {
+          if (!wrap.matches(':hover') && !youtubeControls.matches(':hover')) {
+            gestureText.classList.remove('slide-up');
+            noiseBar.classList.remove('slide-up');
+          }
+        }, 1500);
+      });
+    </script>
+    
+    <script src="./index.js"></script>
+    <script src="./timeline.js"></script>
+</body>
+</html>
