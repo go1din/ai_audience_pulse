@@ -6,7 +6,6 @@
     position: { x: number; y: number };
     timestamp: number;
   }[] = [];
-  export let isRecording: boolean = false;
 
   const EMOJI_MAP = {
     thumbs: '👍',
@@ -15,22 +14,48 @@
   };
 
   const REACTION_LIFETIME = 3000; // 3 seconds
-
+  const TIME_WINDOW = 1000; // 1 second window for reaction frequency
+  const MIN_SIZE = 4; // Base size in rem
+  const MAX_SIZE = 11; // Maximum size in rem
+  const REACTION_THRESHOLD = 120; // Threshold for maximum size
+  
   let visibleReactions = reactions;
+  let reactionFrequency = 0;
+
+  function calculateEmojiSize(timestamp: number): number {
+    const now = Date.now();
+    // Count reactions in the last second
+    const recentReactions = reactions.filter(r => 
+      r.timestamp > now - TIME_WINDOW && 
+      r.timestamp <= now
+    ).length;
+
+    // Calculate size based on frequency
+    const sizeRatio = Math.min(recentReactions / REACTION_THRESHOLD, 1);
+    const size = MIN_SIZE + (MAX_SIZE - MIN_SIZE) * sizeRatio;
+    
+    return size;
+  }
 
   $: {
     const now = Date.now();
-    visibleReactions = reactions.filter(r => now - r.timestamp < REACTION_LIFETIME);
+    visibleReactions = reactions
+      .filter(r => now - r.timestamp < REACTION_LIFETIME)
+      .map(r => ({
+        ...r,
+        size: calculateEmojiSize(r.timestamp)
+      }));
   }
 </script>
 
 <style>
   .reaction {
     position: absolute;
-    font-size: 2rem;
     pointer-events: none;
-    animation: floatUp 3s ease-out forwards;
     opacity: 0;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+    will-change: transform, opacity;
+    transition: font-size 0.3s ease-out;
   }
 
   @keyframes floatUp {
@@ -38,11 +63,11 @@
       transform: translateY(0) scale(0.5);
       opacity: 0;
     }
-    10% {
-      transform: translateY(-10px) scale(1.2);
+    15% {
+      transform: translateY(-15px) scale(1.2);
       opacity: 1;
     }
-    90% {
+    85% {
       transform: translateY(-100px) scale(1);
       opacity: 1;
     }
@@ -52,15 +77,32 @@
     }
   }
 
-  .thumbs { animation-duration: 2.8s; }
-  .applause { animation-duration: 3.2s; }
-  .smile { animation-duration: 3s; }
+  .reaction {
+    animation: floatUp var(--duration) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+
+  .thumbs { --duration: 2.8s; }
+  .applause { --duration: 3.2s; }
+  .smile { --duration: 3s; }
+
+  /* Add size classes for different intensities */
+  .reaction-intense {
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+  }
+
+  .reaction-super-intense {
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.4));
+  }
 </style>
 
 {#each visibleReactions as reaction (reaction.timestamp)}
   <div 
-    class="reaction {reaction.type}"
-    style="left: {reaction.position.x}%; top: {reaction.position.y}%;"
+    class="reaction {reaction.type} {reaction.size > 3 ? 'reaction-intense' : ''} {reaction.size > 3.5 ? 'reaction-super-intense' : ''}"
+    style="
+      left: {reaction.position.x}%; 
+      top: {reaction.position.y}%;
+      font-size: {reaction.size}rem;
+    "
   >
     {EMOJI_MAP[reaction.type]}
   </div>
