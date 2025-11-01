@@ -1,11 +1,30 @@
 <script lang="ts">
   export let counts: { thumbs: number; applause: number; smile: number };
   
-  const reactions = [
+  import { afterUpdate } from 'svelte';
+  
+  let prevCounts = { ...counts };
+  
+  // Make reactions reactive to changes in counts
+  $: reactions = [
     { emoji: '👍', count: counts.thumbs, label: 'Thumbs Up' },
     { emoji: '👏', count: counts.applause, label: 'Applause' },
     { emoji: '😊', count: counts.smile, label: 'Smiles' }
   ];
+
+  // Animate count changes
+  afterUpdate(() => {
+    const countElements = document.querySelectorAll('.count');
+    ['thumbs', 'applause', 'smile'].forEach((type, index) => {
+      if (counts[type] !== prevCounts[type]) {
+        countElements[index]?.classList.add('changed');
+        setTimeout(() => {
+          countElements[index]?.classList.remove('changed');
+        }, 300);
+      }
+    });
+    prevCounts = { ...counts };
+  });
 </script>
 
 <style>
@@ -36,6 +55,11 @@
     color: rgba(255, 255, 255, 0.9);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.025em;
+    transition: all 0.2s ease;
+  }
+
+  .count:global(.changed) {
+    animation: countChange 0.3s ease-in-out;
   }
 
   .label {
