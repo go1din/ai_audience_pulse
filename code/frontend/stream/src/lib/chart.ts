@@ -83,6 +83,17 @@ interface SilenceInfo {
   audioLevel: number;
 }
 
+function getColorForValue(value: number): string {
+  // Return color based on audio level (0-1 range)
+  if (value >= 0.6) {
+    return 'rgba(251, 146, 60, 1)'; // Hot orange
+  } else if (value >= 0.3) {
+    return 'rgba(251, 191, 36, 1)'; // Warm yellow
+  } else {
+    return 'rgba(52, 211, 153, 1)'; // Cold green
+  }
+}
+
 function getColorScheme(audioLevel: number): ChartColors {
   // Base color on actual audio envelope level (0-1 range)
   if (audioLevel >= 0.6) {
@@ -106,16 +117,37 @@ export function updateChart(
   const recentValues = timeline.slice(-5);
   const avgAudioLevel = recentValues.reduce((sum, val) => sum + val, 0) / recentValues.length;
 
-  // Update gradient fill and colors based on audio level
+  // Create a horizontal gradient that changes color based on data values
   const ctx = chart.ctx;
-  if (ctx) {
-    const colors = getColorScheme(avgAudioLevel);
-    const gradient = ctx.createLinearGradient(0, 0, 0, chart.height);
-    gradient.addColorStop(0, colors.gradientTop);
-    gradient.addColorStop(0.5, colors.gradientMiddle);
-    gradient.addColorStop(1, colors.gradientBottom);
+  if (ctx && timeline.length > 0) {
+    // Create horizontal gradient across the chart
+    const gradient = ctx.createLinearGradient(0, 0, chart.width, 0);
+    
+    // Add color stops based on each data point's value
+    timeline.forEach((value, index) => {
+      const position = index / (timeline.length - 1 || 1);
+      const color = getColorForValue(value);
+      
+      // Create vertical gradient for each segment
+      const segmentGradient = ctx.createLinearGradient(0, 0, 0, chart.height);
+      
+      if (value >= 0.6) {
+        // Hot - orange
+        gradient.addColorStop(position, 'rgba(251, 146, 60, 0.8)');
+      } else if (value >= 0.3) {
+        // Warm - yellow
+        gradient.addColorStop(position, 'rgba(251, 191, 36, 0.7)');
+      } else {
+        // Cold - green
+        gradient.addColorStop(position, 'rgba(52, 211, 153, 0.7)');
+      }
+    });
+    
     chart.data.datasets[0].backgroundColor = gradient;
-    chart.data.datasets[0].borderColor = colors.border;
+    
+    // Set border color based on most recent value
+    const lastValue = timeline[timeline.length - 1];
+    chart.data.datasets[0].borderColor = getColorForValue(lastValue);
   }
 
   // Detect silence (if last 3 values are below threshold)
@@ -129,7 +161,7 @@ export function updateChart(
     y: chart.height * 0.3  // Position in upper third
   };
 
-  chart.update('active');
+  chart.update('none'); // Use 'none' for smoother performance with frequent updates
   
   return { isSilent, position, audioLevel: avgAudioLevel };
 }

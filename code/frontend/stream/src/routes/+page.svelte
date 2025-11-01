@@ -309,17 +309,16 @@
     width: 100%;
     height: 100%;
     background: linear-gradient(180deg, 
-      rgba(10, 14, 39, 0.4) 0%,
-      rgba(10, 14, 39, 0.05) 30%,
-      rgba(10, 14, 39, 0.05) 70%,
-      rgba(10, 14, 39, 0.4) 100%
+      rgba(10, 14, 39, 0.3) 0%,
+      rgba(10, 14, 39, 0.02) 30%,
+      rgba(10, 14, 39, 0.02) 70%,
+      rgba(10, 14, 39, 0.3) 100%
     );
     z-index: 1;
     pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(2px);
   }
 
   canvas.chart {
