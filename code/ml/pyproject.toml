@@ -1,9 +1,9 @@
 [project]
 name = "ml"
 version = "0.1.0"
-description = "Add your description here"
+description = "machine learning: face detection & emotion classification"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.4.1",
     "opencv-python>=4.11.0.86",
