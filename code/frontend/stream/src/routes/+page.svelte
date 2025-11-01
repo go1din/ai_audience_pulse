@@ -203,12 +203,28 @@
     font-size: 1.1rem;
   }
 
-  canvas.chart {
+  .chart-container {
     position: absolute;
-    bottom: 8rem;
+    top: 0;
+    left: 0;
     width: 100%;
-    height: 30%;
+    height: 100%;
+    background: linear-gradient(to bottom, 
+      rgba(0, 0, 0, 0.4) 0%,
+      rgba(0, 0, 0, 0.2) 50%,
+      rgba(0, 0, 0, 0.4) 100%
+    );
     z-index: 1;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas.chart {
+    width: 100%;
+    height: 70%;
+    opacity: 0.8;
   }
 
   .stats-wrapper {
@@ -243,7 +259,7 @@
     }
 
     canvas.chart {
-      bottom: 6rem;
+      height: 60%;
     }
   }
 </style>
@@ -278,7 +294,9 @@
         </button>
       </div>
 
-      <canvas bind:this={chartCanvas} class="chart"></canvas>
+      <div class="chart-container">
+        <canvas bind:this={chartCanvas} class="chart"></canvas>
+      </div>
       
       <div class="stats-wrapper">
         <Stats counts={emojiCounts} />
