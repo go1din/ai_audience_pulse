@@ -6,7 +6,6 @@ from matplotlib import pyplot as plt
 import matplotlib
 import struct
 import numpy as np
-import random
 
 # should fix threading issues
 matplotlib.use('Agg')
@@ -14,20 +13,17 @@ matplotlib.use('Agg')
 app = Flask(__name__)
 CORS(app)
 
-count = 0
-modulo = 12
+image_handler = dict()
 
-def get_image():
-    return random.randint(0, modulo - 1)
+@app.route('/img/<id>', methods=['GET'])
+def serve_image(id=0):
+    global image_handler
+    return send_file(io.BytesIO(image_handler[id]), mimetype='image/jpeg')
 
-@app.route('/img')
-def serve_image():
-    return send_file(str(get_image()) + '.jpg', mimetype='image/jpeg')
-
-@app.route('/bmp', methods=['POST'])
-def bmp():
+@app.route('/img/<id>', methods=['POST'])
+def img(id=None):
     try:
-        global count
+        global image_handler
         # Read raw binary data from request body
         image_data = request.get_data()
         
@@ -35,10 +31,8 @@ def bmp():
             return jsonify({"error": "No image data provided"}), 400
         
         # Open image from binary data
-        Image.open(io.BytesIO(image_data)).save(f'{count}.jpg')
+        image_handler[id] = image_data
 
-        count = (count + 1) % modulo
-        
         return jsonify({
             "message": "Image received successfully"
         }), 200
@@ -46,34 +40,21 @@ def bmp():
     except Exception as e:
         return jsonify({"error": f"Failed to process image: {str(e)}"}), 400
 
+json_file = None
 
-@app.route('/audio', methods=['POST'])
-def audio():
-    try:
-        # Read raw binary data from request body
-        sound_data = request.get_data()
+@app.route('/audio/score', methods=['POST'])
+def receive_json():
+    if request.is_json:
+        global json_file
+        json_file = request.get_json()
+        print(json_file)  # Process the received JSON data
+        return 'JSON received!', 200
+    else:
+        return 'Request was not JSON', 400
 
-        if not sound_data:
-            return jsonify({"error": "No audio data provided"}), 400
-
-        num_ints = len(sound_data) // 4
-
-        # Open image from binary data
-        integers = np.frombuffer(sound_data, np.int16)
-        plt.figure()
-        plt.plot(integers)
-        plt.title('Audio')
-        plt.xlabel('Time [samples]')
-        plt.ylabel('Amplitude')
-        plt.show()
-
-        return jsonify({
-            "message": "Audio received successfully"
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": f"Failed to process audio: {str(e)}"}), 400
-
+@app.route('/audio/score', methods=['GET'])
+def send_json():
+    return jsonify(json_file)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, host='0.0.0.0')
