@@ -6,11 +6,8 @@ import pandas as pd
 import duckdb
 import re
 from datetime import datetime, timezone
-import torch
-from torchvision import transforms
-from PIL import Image
 import time
-from typing import List
+import glob
 
 LINE_WIDTH = 1
 FONT_SIZE = 1
@@ -19,13 +16,37 @@ CONFIDENCE_THRESHOLD = 0.2
 
 def main():
     detection_model_path = "../../assets/yolov12n-face.pt"
-    emotion_classification_path = "../../affectnet.pth"
-    video_path = "../../assets/emotions.mp4"
+    image_path = "../../assets/sample_images/" 
+    image_paths = get_ordered_image_paths(image_path) #this is a memory leak waiting to happen
+    output_dir_path = "../../runs/annotated_images"
     db_file_path = "../../runs/inference.duckdb"
-    table_name = sanitize_path_to_table_name(video_path)
     model = load_detection_model(detection_model_path)
-    inference_video(model, video_path, db_file_path, table_name)
+    inference_images(model, image_paths, db_file_path, "inference", output_dir_path)
 
+def get_ordered_image_paths(directory_path):
+    """
+    Reads all .jpg files from the specified directory path, sorts them 
+    alphabetically, and returns the full paths.
+
+    Args:
+        directory_path (str): The path to the directory containing the images.
+
+    Returns:
+        list: A sorted list of absolute paths to all JPG files.
+    """
+    # 1. Construct the pattern for all JPG files (case-insensitive glob)
+    # glob.iglob is often used, but glob.glob is simpler here. 
+    # Use os.path.join to ensure correct path separator usage.
+    search_pattern = os.path.join(directory_path, "*.jpg") 
+    
+    # 2. Find all files matching the pattern
+    # The glob module is effective for pattern matching file names.
+    image_paths = glob.glob(search_pattern)
+    
+    # 3. Sort the paths to maintain sequential order (e.g., frame001.jpg, frame002.jpg)
+    image_paths.sort()
+    
+    return image_paths
 
 def load_detection_model(detection_model_path):
     try:
@@ -37,50 +58,6 @@ def load_detection_model(detection_model_path):
         return None
     except Exception as e:
         print(f"ERROR: Unexpected error: {e}")
-
-
-def pth_processing(fp):
-    class PreprocessInput(torch.nn.Module):
-        def init(self):
-            super(PreprocessInput, self).init()
-
-        def forward(self, x):
-            x = x.to(torch.float32)
-            x = torch.flip(x, dims=(0,))
-            x[0, :, :] -= 91.4953
-            x[1, :, :] -= 103.8827
-            x[2, :, :] -= 131.0912
-            return x
-
-    def get_img_torch(path):
-        img = Image.open(path)
-        img = img.resize((224, 224), Image.Resampling.NEAREST)
-
-        ttransform = transforms.Compose([transforms.PILToTensor(), PreprocessInput()])
-
-        img = ttransform(img)
-        img = torch.unsqueeze(img, 0)
-        return img
-
-    return get_img_torch(fp)
-
-
-def sanitize_path_to_table_name(video_path):
-    """
-    Creates a valid and descriptive SQL table name from a file path.
-    Example: '../../assets/audienceVR.mp4' -> 'audienceVR_mp4'
-    """
-    base_name = os.path.basename(video_path)
-
-    # We replace '.' with '_' to keep the file extension visible
-    table_name = base_name.replace(".", "_")
-
-    # Remove or replace any other non-alphanumeric characters
-    table_name = re.sub(r"[^\w_]", "", table_name)
-
-    # Add a prefix to ensure the name doesn't start with a number
-    return f"inference_log_{table_name}".lower()
-
 
 def save_to_duckdb(df, db_file_path, table_name):
     """
@@ -105,122 +82,124 @@ def save_to_duckdb(df, db_file_path, table_name):
         except Exception as e:
             logging.error(f"Failed to bulk insert data into DuckDB: {e}")
 
-
-def inference_video(model, video_path, db_file_path, table_name):
+def inference_images(model, image_paths, db_file_path, table_name, output_dir_path):
     """
-    Runs YOLO prediction frame-by-frame on the video to allow custom annotation size
-    and saves the output to a new video file.
+    Runs YOLO prediction frame-by-frame on a sequence of images (frames) 
+    to allow custom annotation size and saves the annotated images to a new directory.
     """
     if model is None:
         logging.error("Inference skipped because the model failed to load.")
         return []
 
-    if not os.path.exists(video_path):
-        logging.error(f"Video file not found at path: {video_path}")
+    if not image_paths:
+        logging.error("Input image_paths list is empty.")
         return []
 
-    logging.info(f"Starting frame-by-frame inference on video: {video_path}")
-    output_path = f"../../runs/{video_path}"
+    input_directory = os.path.dirname(image_paths[0])
+    
+    # Use the directory name (e.g., 'sample_images') as the base name for the whole batch/job.
+    base_output_name = os.path.basename(input_directory)
+    # --- Setup Output Directory ---
+    os.makedirs(output_dir_path, exist_ok=True)
+    logging.info(f"Saving annotated images to directory: {output_dir_path}")
+
+    logging.info(f"Starting frame-by-frame inference on {len(image_paths)} images.")
     processing_time = datetime.now(timezone.utc)
     logging.info(
-        f"Starting inference for '{video_path}' and logging to table: {table_name}"
+        f"Starting inference for image sequence and logging to table: {table_name}"
     )
 
-    cap = cv2.VideoCapture(video_path)
-
-    if not cap.isOpened():
-        logging.error(f"Error: Could not open video file {video_path}")
+    # Read the first image to get dimensions for logging/initial setup
+    first_frame = cv2.imread(image_paths[0])
+    if first_frame is None:
+        logging.error(f"Error: Could not open the first image file {image_paths[0]}")
         return []
 
-    # Get video properties
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_height, frame_width, _ = first_frame.shape
+    
+    # In a video, we skip frames. For images, we can choose to process all or every Nth.
+    # For a sequence of images representing a video, we keep the frame skip logic.
+    # Since we don't have FPS, we can't calculate a 1-second interval, 
+    # so FRAME_SKIP will default to 1 (process all) or a hardcoded value.
+    FRAME_SKIP = 1 # Process every image by default
+    
+    # If the image sequence represents a video, you might still want to skip some.
+    # To maintain approximate 1-second logic (assuming 30 FPS source):
+    # FRAME_SKIP = 30 
+    # logging.info(f"Processing will run every {FRAME_SKIP} images (assuming 30 FPS source).")
 
-    if fps:
-        # Calculate how many frames to skip for a 1-second interval
-        FRAME_SKIP = max(1, int(round(fps)))
-    else:
-        # Fallback if FPS property is unavailable
-        FRAME_SKIP = 30
-        logging.warning(
-            "FPS not found, defaulting to 30 frame skip (approx 1 second at 30 FPS)."
-        )
-
-    logging.info(f"Video FPS: {fps:.2f}. Inference will run every {FRAME_SKIP} frames.")
-
-    # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(
-        output_path, fourcc, fps if fps else FRAME_SKIP, (frame_width, frame_height)
-    )
 
     detection_data = []
-    frame_number = 0
     last_known_detections = []
     yolo_results = []
     last_plot_result = None
     con = duckdb.connect(database=db_file_path)
+    
     try:
+        # DuckDB table setup (remains the same)
         column_names = [
-    'processing_timestamp', 'video_path', 'frame_id', 'time_in_video_sec',
-    'class_name', 'confidence', 'x_min', 'y_min', 'x_max', 'y_max',
-    'frame_width', 'frame_height'
-]
+            'processing_timestamp', 'image_path', 'frame_id', 'time_in_video_sec',
+            'class_name', 'confidence', 'x_min', 'y_min', 'x_max', 'y_max',
+            'frame_width', 'frame_height'
+        ]
 
-# 2. Define the schema placeholder as a dictionary (for a single dummy row)
-# This dict contains the actual data types you intend to use.
         schema_placeholder_data = {
-    'processing_timestamp': datetime.now(timezone.utc), # DATETIME
-    'video_path': '',                                   # STRING
-    'frame_id': 0,                                      # INTEGER
-    'time_in_video_sec': 0.0,                           # FLOAT
-    'class_name': '',                                   # STRING
-    'confidence': 0.0,                                  # FLOAT
-    'x_min': 0, 'y_min': 0, 'x_max': 0, 'y_max': 0,     # INTEGER
-    'frame_width': 0, 'frame_height': 0                 # INTEGER
-}
+            'processing_timestamp': datetime.now(timezone.utc),
+            'image_path': '',
+            'frame_id': 0,
+            'time_in_video_sec': 0.0,
+            'class_name': '',
+            'confidence': 0.0,
+            'x_min': 0, 'y_min': 0, 'x_max': 0, 'y_max': 0,
+            'frame_width': 0, 'frame_height': 0
+        }
 
-# 3. Create the temporary DataFrame using the placeholder data and the column order
         temp_df_schema = pd.DataFrame([schema_placeholder_data], columns=column_names)
-        con.register("temp_df_schema", temp_df_schema)  # ADDED: Register empty DF
-        # MODIFIED: Use the registered DF to create the table structure
+        con.register("temp_df_schema", temp_df_schema)
         con.sql(
             f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM temp_df_schema WHERE 1=0"
         )
-        logging.info(f"DuckDB table '{table_name}' ensured to exist.")  # ADDED
+        logging.info(f"DuckDB table '{table_name}' ensured to exist.")
     except Exception as e:
-        logging.error(f"Failed to setup DuckDB table: {e}")  # ADDED
-        con.close()  # ADDED: Close connection on failure
-        return []  # ADDED: Exit on failure
+        logging.error(f"Failed to setup DuckDB table: {e}")
+        con.close()
+        return []
 
     # Start timer for commit logic
     last_commit_time = time.time()
     COMMIT_INTERVAL_SEC = 3
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame_number += 1
+    
+    # --- Main Image Processing Loop ---
+    for frame_number, image_path in enumerate(image_paths, start=1):
+        frame = cv2.imread(image_path)
+        if frame is None:
+            logging.warning(f"Skipping unreadable image: {image_path}")
+            continue
 
-        time_in_video_sec = frame_number / (fps if fps else 30)
+        # time_in_video_sec calculation is now an approximation, assuming a fixed FPS (e.g., 30)
+        # We can use the frame_number directly as the primary time index.
+        time_in_video_sec = frame_number / 30.0 # Approximation using 30 FPS
 
+        # Use image_path as a stand-in for image_path 
+        image_name = os.path.basename(image_path)
+        
+        # --- Inference Logic ---
         if frame_number == 1 or (frame_number % FRAME_SKIP == 0):
-            logging.debug(f"Running inference on frame {frame_number}...")
+            logging.debug(f"Running inference on image {frame_number} ({image_name})...")
+            # YOLO model call remains the same, but 'frame' is the image data
             yolo_results = model(
                 frame, conf=CONFIDENCE_THRESHOLD, verbose=False, stream=True
             )
             last_known_detections = []
 
-            # Process results, extract data, and store for subsequent frames
+            # Process results, extract data, and store for subsequent images (or just this one)
             for result in yolo_results:
                 if last_plot_result is None:
                     last_plot_result = result
 
-                # Store the entire Boxes object for easy re-drawing later
                 last_known_detections.append(result.boxes)
 
-                # Extract data for DuckDB logging (only log the frames where inference runs)
+                # Extract data for DuckDB logging (only log the images where inference runs)
                 boxes = result.boxes
                 for box in boxes:
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
@@ -232,8 +211,8 @@ def inference_video(model, video_path, db_file_path, table_name):
                     detection_data.append(
                         {
                             "processing_timestamp": processing_time,
-                            "video_path": video_path,
-                            "frame_id": frame_number,  # Log the frame ID where inference was run
+                            "image_path": image_path, # Log the individual image path
+                            "frame_id": frame_number,
                             "time_in_video_sec": time_in_video_sec,
                             "class_name": class_name,
                             "confidence": confidence,
@@ -246,19 +225,26 @@ def inference_video(model, video_path, db_file_path, table_name):
                         }
                     )
 
-        # --- ANNOTATION: Use the LAST KNOWN detections for ALL frames ---
+        # --- ANNOTATION: Use the LAST KNOWN detections for ALL images ---
         annotated_frame = frame.copy()
 
         # Manually draw the last known bounding boxes on the current frame
         if last_known_detections and last_plot_result is not None:
+            # Need a check because last_known_detections is a list of Boxes objects
             if last_known_detections[0].data.numel() > 0:
                 last_plot_result.boxes = last_known_detections[0]
 
+            # Use the plot method to draw on the image
             annotated_frame = last_plot_result.plot(
                 img=annotated_frame, line_width=LINE_WIDTH, font_size=FONT_SIZE
             )
 
-        out.write(annotated_frame)
+        # --- Output Image Writing ---
+        # The output file name is derived from the input image name
+        output_path = os.path.join(output_dir_path, f"annotated_{image_name}")
+        cv2.imwrite(output_path, annotated_frame)
+
+        # --- DuckDB Commit Logic ---
         current_time = time.time()
         if current_time - last_commit_time >= COMMIT_INTERVAL_SEC and detection_data:
             df_commit = pd.DataFrame(detection_data)
@@ -271,19 +257,18 @@ def inference_video(model, video_path, db_file_path, table_name):
                 )
                 detection_data = []
                 last_commit_time = current_time
-
             except Exception as e:
                 logging.error(f"Failed to commit data to DuckDB at interval: {e}")
 
-        # Optional: display frame for real-time check (can slow down processing),
-        # comment out for speed if not needed or alternative frontend available
+        # Optional: display frame for real-time check (can slow down processing)
         cv2.imshow(f"{model} Inference", annotated_frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
-    cap.release()
-    out.release()
+    # --- Cleanup ---
     cv2.destroyAllWindows()
+    
+    # Final DuckDB commit (same as before)
     if detection_data:
         df = pd.DataFrame(detection_data)
         try:
@@ -301,7 +286,7 @@ def inference_video(model, video_path, db_file_path, table_name):
         )
 
     con.close()
-    logging.info(f"Processing complete! Output saved to: {output_path}")
+    logging.info(f"Processing complete! Annotated images saved to: {output_dir_path}")
     return []
 
 
