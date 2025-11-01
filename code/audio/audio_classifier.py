@@ -14,7 +14,7 @@ class AudioClassificationResult:
 class AudioClassifier:
 
     def __init__(self):
-        self.model = hub.load('yamnet-tensorflow2-yamnet-v1')
+        self.model = hub.load('../../assets/yamnet-tensorflow2-yamnet-v1')
 
         self.clapping_class_indexes = [
             58,  # Clapping
