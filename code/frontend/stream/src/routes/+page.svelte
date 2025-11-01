@@ -210,6 +210,8 @@
     right: 2rem;
     z-index: 2;
     display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     gap: 1rem;
   }
 
@@ -345,9 +347,8 @@
 
   .stats-wrapper {
     position: absolute;
-    bottom: 2.5rem;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 2rem;
+    left: 2rem;
     z-index: 2;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     background: rgba(255, 255, 255, 0.06);
@@ -360,10 +361,6 @@
   }
 
   .legend-wrapper {
-    position: absolute;
-    top: 2.5rem;
-    left: 50%;
-    transform: translateX(-50%);
     z-index: 2;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     animation: slideDown 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -372,11 +369,11 @@
   @keyframes slideDown {
     from {
       opacity: 0;
-      transform: translate(-50%, -20px);
+      transform: translateY(-20px);
     }
     to {
       opacity: 1;
-      transform: translate(-50%, 0);
+      transform: translateY(0);
     }
   }
 
@@ -412,9 +409,10 @@
 
   .status-badge {
     position: absolute;
-    top: 2.5rem;
-    left: 2.5rem;
-    padding: 0.625rem 1.25rem;
+    bottom: 2.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.75rem 1.5rem;
     border-radius: 2rem;
     font-size: 0.875rem;
     font-weight: 600;
@@ -422,7 +420,7 @@
     display: flex;
     align-items: center;
     gap: 0.625rem;
-    z-index: 2;
+    z-index: 3;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(16px) saturate(180%);
     box-shadow: 
@@ -450,14 +448,13 @@
 
   @media (max-width: 768px) {
     .controls {
-      top: auto;
-      bottom: 1.5rem;
+      top: 1.5rem;
       right: 1.5rem;
+      gap: 0.75rem;
     }
 
     .status-badge {
-      top: 1.5rem;
-      left: 1.5rem;
+      bottom: 1.5rem;
     }
 
     canvas.chart {
@@ -465,7 +462,8 @@
     }
 
     .stats-wrapper {
-      bottom: 2rem;
+      top: 1.5rem;
+      left: 1.5rem;
     }
   }
 
@@ -482,10 +480,16 @@
 
   @media (min-width: 1280px) {
     .controls {
+      top: 3rem;
       right: 3rem;
     }
 
     .status-badge {
+      bottom: 3rem;
+    }
+
+    .stats-wrapper {
+      top: 3rem;
       left: 3rem;
     }
   }
@@ -525,6 +529,10 @@
       </div>
 
       <div class="controls">
+        <div class="legend-wrapper" class:hidden={!isRecording}>
+          <ColorLegend currentIntensity={silenceInfo.audioLevel} />
+        </div>
+        
         <button 
           class="record-button hover-scale" 
           on:click={toggleRecording}
@@ -549,10 +557,6 @@
         <SilenceIndicator 
           isVisible={silenceInfo.isSilent && isRecording}
         />
-      </div>
-      
-      <div class="legend-wrapper" class:hidden={!isRecording}>
-        <ColorLegend currentIntensity={silenceInfo.audioLevel} />
       </div>
 
       <div class="stats-wrapper" class:hidden={!isRecording}>

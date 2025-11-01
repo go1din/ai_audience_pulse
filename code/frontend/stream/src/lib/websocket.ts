@@ -44,9 +44,19 @@ function generateNextValue(now: number): number {
 function generateMockData(): WebSocketData {
   const now = Date.now();
   const randomValue = () => Math.floor(Math.random() * 5);
+  
+  // Add new value to timeline and maintain max length
+  const newValue = generateNextValue(now);
+  timelineValues.push(newValue);
+  if (timelineValues.length > MAX_TIMELINE_LENGTH) {
+    timelineValues = timelineValues.slice(-MAX_TIMELINE_LENGTH);
+  }
+
+  // Generate position based on current audio level
+  // Y position is inverted (100% - level) because chart grows upward but CSS top is from top
   const generatePosition = () => ({
     x: 10 + Math.random() * 80,
-    y: 10 + Math.random() * 80
+    y: 100 - (newValue * 70 + 15) // Map 0-1 audio level to 85%-15% from top (inverted)
   });
 
   // Generate random reaction events
@@ -59,13 +69,6 @@ function generateMockData(): WebSocketData {
       position: generatePosition(),
       timestamp: now
     });
-  }
-
-  // Add new value to timeline and maintain max length
-  const newValue = generateNextValue(now);
-  timelineValues.push(newValue);
-  if (timelineValues.length > MAX_TIMELINE_LENGTH) {
-    timelineValues = timelineValues.slice(-MAX_TIMELINE_LENGTH);
   }
 
   const emojis = {
