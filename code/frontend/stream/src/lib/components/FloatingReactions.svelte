@@ -6,6 +6,7 @@
     position: { x: number; y: number };
     timestamp: number;
   }[] = [];
+  export let isRecording: boolean = false;
 
   const EMOJI_MAP = {
     thumbs: '👍',

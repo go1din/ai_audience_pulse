@@ -372,6 +372,17 @@
     }
   }
 
+  .chart-container,
+  .stats-wrapper,
+  .floating-reactions {
+    transition: opacity 0.3s ease-out;
+  }
+  
+  .hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   @media (min-width: 1280px) {
     .controls {
       right: 3rem;
@@ -432,20 +443,22 @@
         </button>
       </div>
 
-      <div class="chart-container">
+      <div class="chart-container" class:hidden={!isRecording}>
         <canvas bind:this={chartCanvas} class="chart"></canvas>
         <SilenceIndicator 
-          isVisible={silenceInfo.isSilent}
+          isVisible={silenceInfo.isSilent && isRecording}
           x={silenceInfo.position.x}
           y={silenceInfo.position.y}
         />
       </div>
       
-      <div class="stats-wrapper">
+      <div class="stats-wrapper" class:hidden={!isRecording}>
         <Stats counts={emojiCounts} />
       </div>
 
-      <FloatingReactions reactions={reactionEvents} />
+      <div class:hidden={!isRecording}>
+        <FloatingReactions reactions={reactionEvents} />
+      </div>
     </div>
   </div>
 </div>
