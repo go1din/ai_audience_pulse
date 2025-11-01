@@ -1,17 +1,28 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from PIL import Image
 import io
 from matplotlib import pyplot as plt
 import matplotlib
 import struct
 import numpy as np
+import random
 
 # should fix threading issues
 matplotlib.use('Agg')
 
 app = Flask(__name__)
+CORS(app)
 
 count = 0
+modulo = 12
+
+def get_image():
+    return random.randint(0, modulo - 1)
+
+@app.route('/img')
+def serve_image():
+    return send_file(str(get_image()) + '.jpg', mimetype='image/jpeg')
 
 @app.route('/bmp', methods=['POST'])
 def bmp():
@@ -29,7 +40,7 @@ def bmp():
         plt.imshow(image)
         plt.savefig(f'{count}.jpg')
 
-        count += 1
+        count = (count + 1) % modulo
         
         return jsonify({
             "message": "Image received successfully"
