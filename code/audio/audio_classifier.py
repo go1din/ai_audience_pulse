@@ -35,8 +35,8 @@ class AudioClassifier:
         # Run the model, check the output.
         scores, embeddings, spectrogram = self.model(waveform)
 
-        clapping_score = scores.numpy()[:, self.clapping_class_indexes].mean(axis=0).max()
-        laughter_score = scores.numpy()[:, self.laughter_class_indexes].mean(axis=0).max()
+        clapping_score = scores.numpy()[:, self.clapping_class_indexes].max()#mean(axis=0).max()
+        laughter_score = scores.numpy()[:, self.laughter_class_indexes].max()#mean(axis=0).max()
 
         return AudioClassificationResult(
             clapping_score=clapping_score,
