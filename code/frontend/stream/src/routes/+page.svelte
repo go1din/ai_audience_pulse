@@ -421,7 +421,7 @@
 
       <div class="status-badge glass-effect-dark {isRecording ? 'recording' : 'standby'}">
         <div class="record-indicator {isRecording ? 'active' : ''}"></div>
-        <span>{isRecording ? 'Recording' : 'Ready'}</span>
+        <span>{isRecording ? 'Processing' : 'Ready'}</span>
       </div>
 
       <div class="controls">
@@ -433,13 +433,13 @@
           {#if isRecording}
             <div class="record-indicator active"></div>
             <span class="timer">{elapsedTime}</span>
-            <span>Stop Recording</span>
+            <span>Stop</span>
           {:else}
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
-            <span>Start Recording</span>
+            <span>Start</span>
           {/if}
         </button>
       </div>
