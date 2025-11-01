@@ -99,8 +99,8 @@
         reactionEvents = reactionEvents.filter(r => now - r.timestamp < 3000);
       }
 
-      // Only trigger confetti if recording and applause intensity is high
-      if (isRecording && data.applauseIntensity > 0.8) {
+      // Only trigger confetti if recording and 4+ applause reactions
+      if (isRecording && data.applauseIntensity === 1) {
         confetti({ 
           particleCount: 100, 
           spread: 70,

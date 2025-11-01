@@ -68,14 +68,16 @@ function generateMockData(): WebSocketData {
     timelineValues = timelineValues.slice(-MAX_TIMELINE_LENGTH);
   }
 
+  const emojis = {
+    thumbs: randomValue(),
+    applause: randomValue(),
+    smile: randomValue()
+  };
+  
   return {
     timeline: timelineValues,
-    emojis: {
-      thumbs: randomValue(),
-      applause: randomValue(),
-      smile: randomValue()
-    },
-    applauseIntensity: Math.random(),
+    emojis,
+    applauseIntensity: emojis.applause >= 4 ? 1 : 0,
     reactionEvents
   };
 }
