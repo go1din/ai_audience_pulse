@@ -93,7 +93,7 @@ export function connectWebSocket(callback: WebSocketCallback): WebSocket {
   const interval = setInterval(() => {
     const mockData = generateMockData();
     callback(mockData);
-  }, 50); // Update at 20fps for smooth timeline movement
+  }, 1000); // Update at 50=>20fps for smooth timeline movement
 
   // Add cleanup method
   mockWs.close = () => {
