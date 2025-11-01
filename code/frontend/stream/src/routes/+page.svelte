@@ -7,6 +7,7 @@
   import Alert from '$lib/components/Alert.svelte';
   import Stats from '$lib/components/Stats.svelte';
   import FloatingReactions from '$lib/components/FloatingReactions.svelte';
+  import SilenceIndicator from '$lib/components/SilenceIndicator.svelte';
 
   let stream: MediaStream;
   let videoRef: HTMLVideoElement;
@@ -23,6 +24,11 @@
     position: { x: number; y: number };
     timestamp: number;
   }[] = [];
+  
+  let silenceInfo = {
+    isSilent: false,
+    position: { x: 0, y: 0 }
+  };
 
   async function getStream() {
     try {
@@ -83,7 +89,7 @@
 
     const chart = initChart(chartCanvas);
     ws = connectWebSocket((data) => {
-      updateChart(chart, data.timeline);
+      silenceInfo = updateChart(chart, data.timeline);
       emojiCounts = data.emojis;
 
       if (data.reactionEvents) {
@@ -428,9 +434,14 @@
 
       <div class="chart-container">
         <canvas bind:this={chartCanvas} class="chart"></canvas>
+        <SilenceIndicator 
+          isVisible={silenceInfo.isSilent}
+          x={silenceInfo.position.x}
+          y={silenceInfo.position.y}
+        />
       </div>
       
-      <div class="stats-wrapper glass-effect-dark">
+      <div class="stats-wrapper">
         <Stats counts={emojiCounts} />
       </div>
 

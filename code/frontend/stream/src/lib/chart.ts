@@ -48,7 +48,12 @@ export function initChart(canvas: HTMLCanvasElement): Chart {
   });
 }
 
-export function updateChart(chart: Chart, timeline: number[]) {
+interface SilenceInfo {
+  isSilent: boolean;
+  position: { x: number; y: number };
+}
+
+export function updateChart(chart: Chart, timeline: number[]): SilenceInfo {
   chart.data.labels = timeline.map((_, i) => i.toString());
   chart.data.datasets[0].data = timeline;
 
@@ -62,5 +67,18 @@ export function updateChart(chart: Chart, timeline: number[]) {
     chart.data.datasets[0].backgroundColor = gradient;
   }
 
+  // Detect silence (if last 3 values are below threshold)
+  const SILENCE_THRESHOLD = 0.1;
+  const lastValues = timeline.slice(-3);
+  const isSilent = lastValues.every(v => v < SILENCE_THRESHOLD);
+
+  // Calculate position for silence indicator based on chart dimensions
+  const position = {
+    x: chart.width * 0.8, // Position towards the right
+    y: chart.height * 0.3  // Position in upper third
+  };
+
   chart.update('active');
+  
+  return { isSilent, position };
 }

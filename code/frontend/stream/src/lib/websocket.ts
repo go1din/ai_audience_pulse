@@ -35,11 +35,20 @@ function generateMockData(): WebSocketData {
     });
   }
 
+  // Determine if we're in a silence period based on time
+  const timeScale = Math.floor(Date.now() / 4000); // Changes every 4 seconds
+  const isSilencePeriod = timeScale % 2 === 0; // Alternates between activity and silence
+
   return {
     timeline: Array(32).fill(0).map((_, i) => {
-      // Create a smooth wave with some randomness
-      const base = 0.5 + 0.4 * Math.sin((Date.now() / 500) + i / 3);
-      return Math.max(0, Math.min(1, base + (Math.random() - 0.5) * 0.15));
+      if (isSilencePeriod) {
+        // During silence periods, generate very low values
+        return Math.random() * 0.08; // Values well below the silence threshold
+      } else {
+        // During active periods, generate more dynamic values
+        const base = 0.6 + 0.3 * Math.sin((Date.now() / 300) + i / 2);
+        return Math.max(0, Math.min(1, base + (Math.random() - 0.5) * 0.2));
+      }
     }),
     emojis: {
       thumbs: randomValue(),
@@ -59,7 +68,7 @@ export function connectWebSocket(callback: WebSocketCallback): WebSocket {
   const interval = setInterval(() => {
     const mockData = generateMockData();
     callback(mockData);
-  }, 2000);
+  }, 1000); // Update more frequently for smoother transitions
 
   // Add cleanup method
   mockWs.close = () => {
