@@ -56,6 +56,8 @@ export function initChart(canvas: HTMLCanvasElement): Chart {
       }]
     },
     options: {
+      responsive: true,
+      maintainAspectRatio: false,
       animation: {
         duration: 400,
         easing: 'easeOutCubic'
@@ -155,10 +157,10 @@ export function updateChart(
   const lastValues = timeline.slice(-3);
   const isSilent = lastValues.every(v => v < SILENCE_THRESHOLD);
 
-  // Calculate position for silence indicator based on chart dimensions
+  // Calculate position for silence indicator - left side, middle of window
   const position = {
-    x: chart.width * 0.8, // Position towards the right
-    y: chart.height * 0.3  // Position in upper third
+    x: 0, // Left side (will be positioned with CSS)
+    y: 0  // Middle (will be positioned with CSS)
   };
 
   chart.update('none'); // Use 'none' for smoother performance with frequent updates

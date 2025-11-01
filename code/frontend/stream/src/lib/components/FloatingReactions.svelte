@@ -15,8 +15,8 @@
 
   const REACTION_LIFETIME = 3000; // 3 seconds
   const TIME_WINDOW = 1000; // 1 second window for reaction frequency
-  const MIN_SIZE = 4; // Base size in rem
-  const MAX_SIZE = 11; // Maximum size in rem
+  const MIN_SIZE = 1; // Base size in rem
+  const MAX_SIZE = 8; // Maximum size in rem
   const REACTION_THRESHOLD = 120; // Threshold for maximum size
   
   let visibleReactions = reactions;

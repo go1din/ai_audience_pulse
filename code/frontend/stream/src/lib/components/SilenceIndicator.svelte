@@ -1,27 +1,25 @@
 <script lang="ts">
   export let isVisible = false;
-  export let x = 0;
-  export let y = 0;
-
-  let randomOffset = Math.random() * 10 - 5;
-  let randomDelay = Math.random() * 0.5;
 </script>
 
 <style>
   .silence-container {
-    position: absolute;
+    position: fixed;
+    left: 2rem;
+    top: 50%;
+    transform: translateY(-50%) scale(0.8);
     pointer-events: none;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     opacity: 0;
-    transform: scale(0.8);
     transition: opacity 0.3s ease-in-out, transform 0.3s ease-out;
+    z-index: 10;
   }
 
   .silence-container.visible {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(-50%) scale(1);
   }
 
   .silence-banner {
@@ -148,7 +146,6 @@
 <div 
   class="silence-container"
   class:visible={isVisible}
-  style="left: {x}px; top: {y}px;"
 >
   <div class="silence-banner">
     <div class="emoji-container">

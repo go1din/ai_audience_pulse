@@ -314,33 +314,33 @@
 
   .chart-container {
     position: absolute;
-    top: 0;
+    bottom: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    height: 30%;
     background: linear-gradient(180deg, 
-      rgba(10, 14, 39, 0.3) 0%,
-      rgba(10, 14, 39, 0.02) 30%,
-      rgba(10, 14, 39, 0.02) 70%,
-      rgba(10, 14, 39, 0.3) 100%
+      rgba(10, 14, 39, 0) 0%,
+      rgba(10, 14, 39, 0.2) 100%
     );
     z-index: 1;
     pointer-events: none;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: center;
   }
 
   canvas.chart {
-    width: 100%;
-    height: 70%;
-    opacity: 0.92;
-    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.3));
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100%;
+    opacity: 0.7;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    display: block;
   }
 
   canvas.chart:hover {
-    opacity: 0.98;
+    opacity: 0.8;
   }
 
   .stats-wrapper {
@@ -461,7 +461,7 @@
     }
 
     canvas.chart {
-      height: 60%;
+      height: 100%;
     }
 
     .stats-wrapper {
@@ -548,8 +548,6 @@
         <canvas bind:this={chartCanvas} class="chart"></canvas>
         <SilenceIndicator 
           isVisible={silenceInfo.isSilent && isRecording}
-          x={silenceInfo.position.x}
-          y={silenceInfo.position.y}
         />
       </div>
       
