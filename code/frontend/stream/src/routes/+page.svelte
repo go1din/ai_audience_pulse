@@ -31,3 +31,9 @@
 
 <!-- svelte-ignore a11y_media_has_caption -->
 <video bind:this={videoRef} autoplay > </video>
+
+<style>
+  video {
+    width: 100vw;
+  }
+</style>
