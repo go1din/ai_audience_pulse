@@ -281,6 +281,10 @@
     transform: translateX(-50%);
     z-index: 2;
     transition: opacity 0.3s ease;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border-radius: 2rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .stats-wrapper:hover {

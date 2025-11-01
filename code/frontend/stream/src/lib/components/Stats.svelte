@@ -13,10 +13,6 @@
     display: flex;
     gap: 2.5rem;
     padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    border-radius: 2rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .stat {
