@@ -277,6 +277,16 @@
     animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
+  .ready-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #34d399;
+    box-shadow: 
+      0 0 12px rgba(52, 211, 153, 0.6),
+      0 0 24px rgba(52, 211, 153, 0.3);
+  }
+
   .timer {
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.125rem;
@@ -430,11 +440,11 @@
   }
 
   .status-badge.standby {
-    background: rgba(59, 130, 246, 0.15);
-    color: #eff6ff;
-    border: 1.5px solid rgba(59, 130, 246, 0.4);
+    background: rgba(52, 211, 153, 0.15);
+    color: #f0fdf4;
+    border: 1.5px solid rgba(52, 211, 153, 0.4);
     box-shadow: 
-      0 4px 16px rgba(59, 130, 246, 0.3),
+      0 4px 16px rgba(52, 211, 153, 0.3),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
@@ -506,7 +516,11 @@
       {/if}
 
       <div class="status-badge glass-effect-dark {isRecording ? 'recording' : 'standby'}">
-        <div class="record-indicator {isRecording ? 'active' : ''}"></div>
+        {#if isRecording}
+          <div class="record-indicator active"></div>
+        {:else}
+          <div class="ready-indicator"></div>
+        {/if}
         <span>{isRecording ? 'Processing' : 'Ready'}</span>
       </div>
 
