@@ -18,7 +18,12 @@ image_handler = dict()
 @app.route('/img/<id>', methods=['GET'])
 def serve_image(id=0):
     global image_handler
-    return send_file(io.BytesIO(image_handler[id]), mimetype='image/jpeg')
+    if(id in image_handler):
+        return send_file(io.BytesIO(image_handler[id]), mimetype='image/jpeg')
+    else:
+        return 'Resource not available', 400
+
+
 
 @app.route('/img/<id>', methods=['POST'])
 def img(id=None):
