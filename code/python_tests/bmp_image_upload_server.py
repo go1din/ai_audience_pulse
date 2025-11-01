@@ -11,9 +11,12 @@ matplotlib.use('Agg')
 
 app = Flask(__name__)
 
+count = 0
+
 @app.route('/bmp', methods=['POST'])
 def bmp():
     try:
+        global count
         # Read raw binary data from request body
         image_data = request.get_data()
         
@@ -24,7 +27,9 @@ def bmp():
         image = Image.open(io.BytesIO(image_data))
         plt.figure()
         plt.imshow(image)
-        plt.show()
+        plt.savefig(f'{count}.png')
+
+        count += 1
         
         return jsonify({
             "message": "Image received successfully"
