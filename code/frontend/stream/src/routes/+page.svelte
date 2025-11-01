@@ -320,10 +320,15 @@
     left: 0;
     width: 100%;
     height: 30%;
-    background: linear-gradient(180deg, 
-      rgba(10, 14, 39, 0) 0%,
-      rgba(10, 14, 39, 0.2) 100%
-    );
+    background: 
+      linear-gradient(90deg, rgba(52, 211, 153, 0.08) 1px, transparent 1px),
+      linear-gradient(rgba(52, 211, 153, 0.08) 1px, transparent 1px),
+      linear-gradient(180deg, 
+        rgba(10, 14, 39, 0.3) 0%,
+        rgba(10, 14, 39, 0.6) 100%
+      );
+    background-size: 40px 40px, 40px 40px, 100% 100%;
+    background-position: 0 0, 0 0, 0 0;
     z-index: 1;
     pointer-events: none;
     display: flex;

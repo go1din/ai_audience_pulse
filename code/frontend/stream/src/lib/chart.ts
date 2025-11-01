@@ -66,8 +66,32 @@ export function initChart(canvas: HTMLCanvasElement): Chart {
         legend: { display: false }
       },
       scales: {
-        x: { display: false },
-        y: { min: 0, max: 1, grid: { color: 'rgba(255,255,255,0.07)' } }
+        x: { 
+          display: false,
+          grid: {
+            display: true,
+            drawOnChartArea: true,
+            drawTicks: false,
+            color: 'rgba(52, 211, 153, 0.2)',
+            lineWidth: 1.5,
+            tickLength: 0
+          }
+        },
+        y: { 
+          min: 0, 
+          max: 1,
+          ticks: { 
+            display: false,
+            count: 6
+          },
+          grid: { 
+            display: true,
+            drawOnChartArea: true,
+            drawTicks: false,
+            color: 'rgba(52, 211, 153, 0.25)',
+            lineWidth: 1.5
+          } 
+        }
       },
       elements: {
         line: {
