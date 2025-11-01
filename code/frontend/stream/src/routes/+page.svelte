@@ -115,12 +115,15 @@
 </script>
 
 <style>
+  @import '../lib/styles/utils.css';
+
   .container {
     position: relative;
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: #1a1a1a;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #f8fafc;
   }
 
   .content {
@@ -135,6 +138,7 @@
     width: 100%;
     height: 100%;
     background: #000;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
   }
 
   video {
@@ -143,6 +147,11 @@
     height: 100%;
     object-fit: cover;
     z-index: 0;
+    transition: filter 0.3s ease;
+  }
+
+  video:not(.recording) {
+    filter: grayscale(0.3) contrast(1.1);
   }
 
   .loading-overlay {
@@ -155,52 +164,86 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(15, 23, 42, 0.95);
     z-index: 10;
-    gap: 1rem;
-    color: white;
+    gap: 1.5rem;
+    color: #f8fafc;
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  .loading-text {
+    font-size: 1.25rem;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+    opacity: 0.9;
   }
 
   .controls {
     position: absolute;
-    top: 1rem;
-    right: 1rem;
+    top: 2rem;
+    right: 2rem;
     z-index: 2;
     display: flex;
     gap: 1rem;
   }
 
   .record-button {
-    background: rgba(255, 255, 255, 0.9);
-    border: none;
-    border-radius: 2rem;
-    padding: 0.75rem 1.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3rem;
+    padding: 0.875rem 2rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.75rem;
     cursor: pointer;
     font-weight: 600;
-    transition: all 0.2s;
+    font-size: 0.9375rem;
+    color: #fff;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(10px);
-  }
-
-  .record-button:hover {
-    background: white;
-    transform: translateY(-1px);
+    letter-spacing: 0.025em;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   }
 
+  .record-button:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  .record-button:active {
+    transform: translateY(-1px);
+  }
+
   .record-indicator {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: #ef4444;
-    animation: pulse 2s infinite;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  }
+
+  .record-indicator.active {
+    animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
   .timer {
-    font-family: monospace;
-    font-size: 1.1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+    }
+    50% {
+      opacity: 0.6;
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+    }
   }
 
   .chart-container {
@@ -209,22 +252,26 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(to bottom, 
-      rgba(0, 0, 0, 0.4) 0%,
-      rgba(0, 0, 0, 0.2) 50%,
-      rgba(0, 0, 0, 0.4) 100%
+    background: linear-gradient(180deg, 
+      rgba(15, 23, 42, 0.3) 0%,
+      rgba(15, 23, 42, 0.1) 30%,
+      rgba(15, 23, 42, 0.1) 70%,
+      rgba(15, 23, 42, 0.3) 100%
     );
     z-index: 1;
     pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: center;
+    backdrop-filter: blur(1px);
   }
 
   canvas.chart {
     width: 100%;
     height: 70%;
-    opacity: 0.8;
+    opacity: 0.85;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+    transition: opacity 0.3s ease;
   }
 
   .stats-wrapper {
@@ -233,33 +280,95 @@
     left: 50%;
     transform: translateX(-50%);
     z-index: 2;
+    transition: opacity 0.3s ease;
+  }
+
+  .stats-wrapper:hover {
+    opacity: 1;
+  }
+
+  .video-container:not(:hover) .stats-wrapper {
+    opacity: 0.7;
   }
 
   .error-container {
     position: absolute;
-    top: 1rem;
+    top: 2rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 3;
     width: 90%;
     max-width: 600px;
+    animation: slideDown 0.5s ease-out;
   }
 
-  @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.5; }
-    100% { opacity: 1; }
+  @keyframes slideDown {
+    from {
+      transform: translate(-50%, -20px);
+      opacity: 0;
+    }
+    to {
+      transform: translate(-50%, 0);
+      opacity: 1;
+    }
+  }
+
+  .status-badge {
+    position: absolute;
+    top: 2rem;
+    left: 2rem;
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    z-index: 2;
+    transition: all 0.3s ease;
+  }
+
+  .status-badge.recording {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fecaca;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+
+  .status-badge.standby {
+    background: rgba(59, 130, 246, 0.2);
+    color: #bfdbfe;
+    border: 1px solid rgba(59, 130, 246, 0.3);
   }
 
   @media (max-width: 768px) {
     .controls {
       top: auto;
-      bottom: 1rem;
-      right: 1rem;
+      bottom: 1.5rem;
+      right: 1.5rem;
+    }
+
+    .status-badge {
+      top: 1.5rem;
+      left: 1.5rem;
     }
 
     canvas.chart {
       height: 60%;
+    }
+
+    .stats-wrapper {
+      bottom: 2rem;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .controls {
+      right: 3rem;
+    }
+
+    .status-badge {
+      left: 3rem;
     }
   }
 </style>
@@ -267,12 +376,18 @@
 <div class="container">
   <div class="content">
     <div class="video-container">
-      <video bind:this={videoRef} autoplay muted playsinline></video>
+      <video 
+        bind:this={videoRef} 
+        autoplay 
+        muted 
+        playsinline
+        class:recording={isRecording}
+      ></video>
       
       {#if isLoading}
         <div class="loading-overlay">
-          <LoadingSpinner size="60px" color="#ffffff" />
-          <span>Initializing camera...</span>
+          <LoadingSpinner size="64px" color="#60a5fa" />
+          <span class="loading-text">Initializing camera...</span>
         </div>
       {/if}
 
@@ -282,13 +397,26 @@
         </div>
       {/if}
 
+      <div class="status-badge glass-effect-dark {isRecording ? 'recording' : 'standby'}">
+        <div class="record-indicator {isRecording ? 'active' : ''}"></div>
+        <span>{isRecording ? 'Recording' : 'Ready'}</span>
+      </div>
+
       <div class="controls">
-        <button class="record-button" on:click={toggleRecording}>
+        <button 
+          class="record-button hover-scale" 
+          on:click={toggleRecording}
+          style="--hover-scale: 1.05"
+        >
           {#if isRecording}
-            <div class="record-indicator"></div>
+            <div class="record-indicator active"></div>
             <span class="timer">{elapsedTime}</span>
-            <span>Stop</span>
+            <span>Stop Recording</span>
           {:else}
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
             <span>Start Recording</span>
           {/if}
         </button>
@@ -298,7 +426,7 @@
         <canvas bind:this={chartCanvas} class="chart"></canvas>
       </div>
       
-      <div class="stats-wrapper">
+      <div class="stats-wrapper glass-effect-dark">
         <Stats counts={emojiCounts} />
       </div>
 

@@ -11,36 +11,39 @@
 <style>
   .stats-container {
     display: flex;
-    gap: 2rem;
-    padding: 1rem;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(10px);
-    border-radius: 1rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    gap: 2.5rem;
+    padding: 0.75rem 1.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border-radius: 2rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .stat {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    min-width: 80px;
+    gap: 0.5rem;
+    min-width: 60px;
   }
 
   .emoji {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-    transition: transform 0.2s;
+    font-size: 1.5rem;
+    opacity: 0.9;
+    transition: all 0.2s ease;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
   }
 
   .count {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #1a1a1a;
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.025em;
   }
 
   .label {
-    font-size: 0.875rem;
-    color: #666;
+    display: none;
   }
 
   .stat:hover .emoji {
