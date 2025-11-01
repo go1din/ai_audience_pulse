@@ -47,7 +47,7 @@ static const char *TAG = "HTTP_CLIENT";
 
 esp_err_t _http_event_handler(esp_http_client_event_t* evt)
 {
-  Serial.printf("HTTP Event Performed %d \n", evt->event_id);
+  // Serial.printf("HTTP Event Performed %d \n", evt->event_id);
 
   switch(evt->event_id) {
       case HTTP_EVENT_ERROR:
@@ -64,10 +64,10 @@ esp_err_t _http_event_handler(esp_http_client_event_t* evt)
           break;
       case HTTP_EVENT_ON_DATA:
           ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-          if (!esp_http_client_is_chunked_response(evt->client)) 
-          {
-            Serial.printf("HTTP Data Sent (data_len=%d)\n", evt->data_len);
-          }
+          //if (!esp_http_client_is_chunked_response(evt->client)) 
+          //{
+          // Serial.printf("HTTP Data Sent (data_len=%d)\n", evt->data_len);
+          //}
           break;
       case HTTP_EVENT_ON_FINISH:
           ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
@@ -87,6 +87,7 @@ esp_http_client_config_t http_client_config = {
     .port = 5000,
     .path = "bmp",
     .event_handler = _http_event_handler,
+    .is_async = false,
 };
 
 
@@ -115,7 +116,7 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
+  config.frame_size = FRAMESIZE_FHD;
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
   //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
@@ -157,11 +158,19 @@ void setup() {
 
   sensor_t *s = esp_camera_sensor_get();
   // initial sensors are flipped vertically and colors are a bit saturated
-  if (s->id.PID == OV3660_PID) {
+//  if (s->id.PID == OV3660_PID) {
     s->set_vflip(s, 1);        // flip it back
-    s->set_brightness(s, 1);   // up the brightness just a bit
-    s->set_saturation(s, -2);  // lower the saturation
-  }
+    // s->set_brightness(s, 1);   // up the brightness just a bit
+    // s->set_saturation(s, -2);  // lower the saturation
+
+    // Try to improve inmage quality:
+    s->set_quality(s, 10);      // High JPEG quality
+    s->set_brightness(s, 1);    // Slightly brighter
+    s->set_contrast(s, 1);      // More contrast
+    s->set_saturation(s, 1);    // Richer colors
+    s->set_whitebal(s, 1);      // Enable auto white balance
+
+//  }
   // drop down frame size for higher initial frame rate
   if (config.pixel_format == PIXFORMAT_JPEG) {
     s->set_framesize(s, FRAMESIZE_QVGA);
@@ -210,8 +219,9 @@ void capture_images()
   esp_http_client_handle_t http_client = esp_http_client_init(&http_client_config);
 
   static int imageCount = 0;
-  while(imageCount < MAX_IMAGES) 
+  while(imageCount++ < MAX_IMAGES) 
   {
+    uint64_t start_time = esp_timer_get_time();
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
@@ -219,26 +229,18 @@ void capture_images()
     }
 
     // Image conversion logic would go here
-    uint8_t * buf = NULL;
-    size_t buf_len = 0;
-    bool converted = frame2jpg(fb, 0, &buf, &buf_len);
-    esp_camera_fb_return(fb);
-    if(!converted){
-        log_e("JPG Conversion failed");
-        return;
-      }
-
-      free(buf);
-  #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
-      uint64_t fr_end = esp_timer_get_time();
-  #endif
-      log_i("BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
-      // return res;
+    // uint8_t * buf = NULL;
+    // size_t buf_len = 0;
+    // bool converted = frame2jpg(fb, 0, &buf, &buf_len);
+    // if(!converted){
+    //     log_e("JPG Conversion failed");
+    //     return;
+    //   }
 
     // For simplicity, we just print the size
-    Serial.printf("Captured image: %d bytes\n", fb->len);
+    Serial.printf("%lld - Captured image: %d bytes (format=%d , %d x %d , timestamp=%d \n", start_time, fb->len, fb->format, fb->width, fb->height, fb->timestamp);
 
-    esp_http_client_set_url(http_client, "http://192.168.20.166:5000/bmp");
+    esp_http_client_set_url(http_client, "http://192.168.20.166:5000/img/1"); // TODO: change for every camera
     esp_http_client_set_method(http_client, HTTP_METHOD_POST);
     esp_http_client_set_header(http_client, "Content-Type", "image/x-windows-bmp");
     esp_http_client_set_post_field(http_client, (const char*)fb->buf, fb->len);
@@ -247,18 +249,24 @@ void capture_images()
 
     if(err == ESP_OK) 
     {
-        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
+      ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
             esp_http_client_get_status_code(http_client),
             esp_http_client_get_content_length(http_client));
     } 
     else 
     {
-        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+      ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
     }
     
     esp_camera_fb_return(fb);
-    imageCount++;
-    delay(1000); // wait 1 second between captures
+
+    // // wait max 1 second between captures
+    // uint64_t end_time = esp_timer_get_time();
+    // uint64_t elapsed_time_msec = (uint64_t)((end_time - start_time) / 1000);
+    // uint64_t remaining_time_msec = elapsed_time_msec < 1000 ? 1000 - elapsed_time_msec : 1;
+    // log_i("BMP: %llums, %uB", elapsed_time, buf_len);
+    // Serial.printf("Waiting for next image %d milliseconds\n", remaining_time_msec);
+    // delay(remaining_time_msec);
   }
 
   esp_http_client_cleanup(http_client);
