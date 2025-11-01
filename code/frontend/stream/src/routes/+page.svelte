@@ -9,6 +9,9 @@
   import FloatingReactions from '$lib/components/FloatingReactions.svelte';
   import SilenceIndicator from '$lib/components/SilenceIndicator.svelte';
   import ColorLegend from '$lib/components/ColorLegend.svelte';
+  import Header from '$lib/components/Header.svelte';
+  import Footer from '$lib/components/Footer.svelte';
+  import Sidebar from '$lib/components/Sidebar.svelte';
 
   let stream: MediaStream;
   let videoRef: HTMLVideoElement;
@@ -32,6 +35,7 @@
     audioLevel: 0
   };
   let reactionIntensity = 0;
+  let sidebarOpen = false;
 
   async function getStream() {
     try {
@@ -130,9 +134,11 @@
   @import '../lib/styles/utils.css';
 
   .container {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
+    position: fixed;
+    top: 70px;
+    left: 0;
+    right: 0;
+    bottom: 50px;
     overflow: hidden;
     background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1729 100%);
     color: #f8fafc;
@@ -483,6 +489,13 @@
     pointer-events: none;
   }
 
+  @media (max-width: 768px) {
+    .container {
+      top: 60px;
+      bottom: 45px;
+    }
+  }
+
   @media (min-width: 1280px) {
     .controls {
       top: 3rem;
@@ -499,6 +512,9 @@
     }
   }
 </style>
+
+<Header currentPage="stream" />
+<Sidebar bind:isOpen={sidebarOpen} />
 
 <div class="container">
   <div class="content">
@@ -574,3 +590,5 @@
     </div>
   </div>
 </div>
+
+<Footer />
