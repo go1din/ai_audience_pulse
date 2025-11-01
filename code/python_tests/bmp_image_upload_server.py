@@ -2,13 +2,21 @@ from flask import Flask, request, jsonify
 from PIL import Image
 import io
 from matplotlib import pyplot as plt
+import matplotlib
 import struct
+import numpy as np
+
+# should fix threading issues
+matplotlib.use('Agg')
 
 app = Flask(__name__)
+
+count = 0
 
 @app.route('/bmp', methods=['POST'])
 def bmp():
     try:
+        global count
         # Read raw binary data from request body
         image_data = request.get_data()
         
@@ -19,7 +27,9 @@ def bmp():
         image = Image.open(io.BytesIO(image_data))
         plt.figure()
         plt.imshow(image)
-        plt.show()
+        plt.savefig(f'{count}.png')
+
+        count += 1
         
         return jsonify({
             "message": "Image received successfully"
@@ -41,7 +51,7 @@ def audio():
         num_ints = len(sound_data) // 4
 
         # Open image from binary data
-        integers = struct.unpack(f'>{num_ints}I', sound_data)
+        integers = np.frombuffer(sound_data, np.int16)
         plt.figure()
         plt.plot(integers)
         plt.title('Audio')
