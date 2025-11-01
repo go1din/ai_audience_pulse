@@ -134,8 +134,22 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1729 100%);
     color: #f8fafc;
+  }
+
+  .container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(circle at 20% 30%, rgba(52, 211, 153, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(251, 191, 36, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
   }
 
   .content {
@@ -200,27 +214,49 @@
   }
 
   .record-button {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
     border-radius: 3rem;
-    padding: 0.875rem 2rem;
+    padding: 1rem 2.25rem;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.875rem;
     cursor: pointer;
     font-weight: 600;
     font-size: 0.9375rem;
     color: #fff;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    backdrop-filter: blur(10px);
-    letter-spacing: 0.025em;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(16px) saturate(180%);
+    letter-spacing: 0.05em;
+    box-shadow: 
+      0 8px 16px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .record-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.5s;
+  }
+
+  .record-button:hover::before {
+    left: 100%;
   }
 
   .record-button:hover {
-    background: rgba(255, 255, 255, 0.15);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-3px);
+    box-shadow: 
+      0 12px 24px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
   }
 
   .record-button:active {
@@ -232,7 +268,9 @@
     height: 10px;
     border-radius: 50%;
     background: #ef4444;
-    box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+    box-shadow: 
+      0 0 12px rgba(239, 68, 68, 0.6),
+      0 0 24px rgba(239, 68, 68, 0.3);
   }
 
   .record-indicator.active {
@@ -250,11 +288,17 @@
   @keyframes pulseGlow {
     0%, 100% {
       opacity: 1;
-      box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+      box-shadow: 
+        0 0 12px rgba(239, 68, 68, 0.6),
+        0 0 24px rgba(239, 68, 68, 0.3);
+      transform: scale(1);
     }
     50% {
-      opacity: 0.6;
-      box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+      opacity: 0.7;
+      box-shadow: 
+        0 0 20px rgba(239, 68, 68, 0.9),
+        0 0 40px rgba(239, 68, 68, 0.5);
+      transform: scale(1.1);
     }
   }
 
@@ -265,47 +309,66 @@
     width: 100%;
     height: 100%;
     background: linear-gradient(180deg, 
-      rgba(15, 23, 42, 0.3) 0%,
-      rgba(15, 23, 42, 0.1) 30%,
-      rgba(15, 23, 42, 0.1) 70%,
-      rgba(15, 23, 42, 0.3) 100%
+      rgba(10, 14, 39, 0.4) 0%,
+      rgba(10, 14, 39, 0.05) 30%,
+      rgba(10, 14, 39, 0.05) 70%,
+      rgba(10, 14, 39, 0.4) 100%
     );
     z-index: 1;
     pointer-events: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(1px);
+    backdrop-filter: blur(2px);
   }
 
   canvas.chart {
     width: 100%;
     height: 70%;
-    opacity: 0.85;
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
-    transition: opacity 0.3s ease;
+    opacity: 0.92;
+    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.3));
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  canvas.chart:hover {
+    opacity: 0.98;
   }
 
   .stats-wrapper {
     position: absolute;
-    bottom: 2rem;
+    bottom: 2.5rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 2;
-    transition: opacity 0.3s ease;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    border-radius: 2rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-radius: 2.5rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
   .legend-wrapper {
     position: absolute;
-    top: 2rem;
+    top: 2.5rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 2;
-    transition: opacity 0.3s ease;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: slideDown 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -20px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
   }
 
   .stats-wrapper:hover {
@@ -340,30 +403,40 @@
 
   .status-badge {
     position: absolute;
-    top: 2rem;
-    left: 2rem;
-    padding: 0.5rem 1rem;
+    top: 2.5rem;
+    left: 2.5rem;
+    padding: 0.625rem 1.25rem;
     border-radius: 2rem;
     font-size: 0.875rem;
-    font-weight: 500;
-    letter-spacing: 0.025em;
+    font-weight: 600;
+    letter-spacing: 0.05em;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.625rem;
     z-index: 2;
-    transition: all 0.3s ease;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(16px) saturate(180%);
+    box-shadow: 
+      0 4px 16px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
   .status-badge.recording {
-    background: rgba(239, 68, 68, 0.2);
-    color: #fecaca;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.15);
+    color: #fef2f2;
+    border: 1.5px solid rgba(239, 68, 68, 0.4);
+    box-shadow: 
+      0 4px 16px rgba(239, 68, 68, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
   .status-badge.standby {
-    background: rgba(59, 130, 246, 0.2);
-    color: #bfdbfe;
-    border: 1px solid rgba(59, 130, 246, 0.3);
+    background: rgba(59, 130, 246, 0.15);
+    color: #eff6ff;
+    border: 1.5px solid rgba(59, 130, 246, 0.4);
+    box-shadow: 
+      0 4px 16px rgba(59, 130, 246, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 
   @media (max-width: 768px) {

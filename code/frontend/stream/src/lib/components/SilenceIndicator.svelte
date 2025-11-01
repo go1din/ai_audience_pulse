@@ -27,19 +27,22 @@
   .silence-banner {
     background: linear-gradient(90deg, 
       rgba(0, 0, 0, 0) 0%,
-      rgba(66, 153, 225, 0.15) 20%,
-      rgba(66, 153, 225, 0.15) 80%,
+      rgba(139, 92, 246, 0.12) 20%,
+      rgba(139, 92, 246, 0.12) 80%,
       rgba(0, 0, 0, 0) 100%
     );
-    padding: 1rem 2rem;
-    border-radius: 1rem;
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 1.125rem 2.25rem;
+    border-radius: 1.5rem;
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1.5px solid rgba(139, 92, 246, 0.2);
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      0 0 40px rgba(139, 92, 246, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
     display: flex;
     align-items: center;
-    gap: 1rem;
-    animation: glow 2s ease-in-out infinite;
+    gap: 1.25rem;
+    animation: glow 3s ease-in-out infinite;
   }
 
   .emoji-container {
@@ -101,8 +104,18 @@
   }
 
   @keyframes glow {
-    0%, 100% { box-shadow: 0 4px 12px rgba(66, 153, 225, 0.1); }
-    50% { box-shadow: 0 4px 20px rgba(66, 153, 225, 0.2); }
+    0%, 100% { 
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 0 40px rgba(139, 92, 246, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+    50% { 
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 0 60px rgba(139, 92, 246, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
   }
 
   @keyframes sleepBounce {
