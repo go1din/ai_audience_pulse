@@ -1,7 +1,6 @@
 import logging
 from ultralytics import YOLO
 import cv2
-import logging
 import os
 import pandas as pd
 import duckdb
@@ -19,7 +18,7 @@ def main():
     db_file_path = '../../runs/inference.duckdb'
     table_name = sanitize_path_to_table_name(video_path)
     model = load_model(model_path=model_path)
-    results = inference_video(model, video_path, db_file_path, table_name)
+    inference_video(model, video_path, db_file_path, table_name)
 
 def load_model(model_path):
     try:
@@ -97,56 +96,89 @@ def inference_video(model, video_path, db_file_path, table_name):
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
+    if fps:
+        # Calculate how many frames to skip for a 1-second interval
+        FRAME_SKIP = max(1, int(round(fps))) 
+    else:
+        # Fallback if FPS property is unavailable
+        FRAME_SKIP = 30 
+        logging.warning("FPS not found, defaulting to 30 frame skip (approx 1 second at 30 FPS).")
+    
+    logging.info(f"Video FPS: {fps:.2f}. Inference will run every {FRAME_SKIP} frames.")
+
     # Define the codec and create VideoWriter object
     fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
     out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
     detection_data = []
     frame_number = 0
+    last_known_detections = [] 
+    yolo_results = []
+    last_plot_result = None
 
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret: break
+        if not ret:
+             break
         frame_number += 1
         
         time_in_video_sec = frame_number / (fps if fps else 30)
         
-        results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False, stream=True)
+        # --- KEY LOGIC: Check if it's time to run inference ---
+        if frame_number == 1 or (frame_number % FRAME_SKIP == 0):
+            logging.debug(f"Running inference on frame {frame_number}...")
+            yolo_results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False, stream=True)
+            
+            # Reset detections for the new frame
+            # current_frame_detections = [] 
+            last_known_detections = [] 
+            
+            # Process results, extract data, and store for subsequent frames
+            for result in yolo_results:
+                if last_plot_result is None:
+                 last_plot_result = result
+            
+                # Store the entire Boxes object for easy re-drawing later
+                last_known_detections.append(result.boxes)
+                
+                # Extract data for DuckDB logging (only log the frames where inference runs)
+                boxes = result.boxes
+                for box in boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                    confidence = float(box.conf[0].cpu().numpy())
+                    class_id = int(box.cls[0].cpu().numpy())
+                    class_name = model.names[class_id]
+                    
+                    # Store data
+                    detection_data.append({
+                        'processing_timestamp': processing_time,
+                        'video_path': video_path,              
+                        'frame_id': frame_number, # Log the frame ID where inference was run
+                        'time_in_video_sec': time_in_video_sec,
+                        'class_name': class_name,
+                        'confidence': confidence,
+                        'x_min': x1, 'y_min': y1, 'x_max': x2, 'y_max': y2,
+                        'frame_width': frame_width, 'frame_height': frame_height
+                    })
+
+        # --- ANNOTATION: Use the LAST KNOWN detections for ALL frames ---
         annotated_frame = frame.copy()
         
-        for result in results:
-            boxes = result.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-                confidence = float(box.conf[0].cpu().numpy())
-                class_id = int(box.cls[0].cpu().numpy())
-                class_name = model.names[class_id]
-                
-                # DATA COLLECTION: 
-                detection_data.append({
-                    'processing_timestamp': processing_time, 
-                    'frame_id': frame_number,
-                    'time_in_video_sec': time_in_video_sec,
-                    'class_name': class_name,
-                    'confidence': confidence,
-                    'x_min': x1,
-                    'y_min': y1,
-                    'x_max': x2,
-                    'y_max': y2,
-                    'frame_width': frame_width,
-                    'frame_height': frame_height
-                })
-
-            # Video Annotation
-            annotated_frame = result.plot(
+        # Manually draw the last known bounding boxes on the current frame
+        if last_known_detections and last_plot_result is not None:
+            last_plot_result.boxes = last_known_detections[0]
+    
+            annotated_frame = last_plot_result.plot(
                 img=annotated_frame, 
                 line_width=LINE_WIDTH, 
                 font_size=FONT_SIZE
-            )
-        
+                )
+             
+             
         out.write(annotated_frame)
 
-       # Optional: display frame for real-time check (can slow down processing), comment out for speed if not needed or frontend available
+       # Optional: display frame for real-time check (can slow down processing), 
+       # comment out for speed if not needed or alternative frontend available
         cv2.imshow(f'{model} Inference', annotated_frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
              break 
