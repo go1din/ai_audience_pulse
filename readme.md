@@ -2,7 +2,7 @@
 
 Freestyle Challenge Group 3.1
 
-[thumbsup](./assets/thumbup.jpg)
+![thumbsup](./assets/thumbup.jpg)
 
 ## how to run the web parts
 
