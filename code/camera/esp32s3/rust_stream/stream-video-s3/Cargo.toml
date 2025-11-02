@@ -8,31 +8,53 @@ version      = "0.1.0"
 name = "stream-video-s3"
 path = "./src/bin/main.rs"
 
-[dependencies]
-esp-hal = { version = "1.0.0", features = ["esp32s3", "unstable"] }
+[features]
+default = ["esp32s3"]
+esp32s3 = [
+  "esp-hal/esp32s3",
+  "esp-hal-embassy/esp32s3",
+  "esp-wifi/esp32s3",
+  "esp-println/esp32s3",
+  "esp-sync/esp32s3",      # <- ensure chip feature is set for esp-sync
+]
 
+[dependencies]
+# HAL + Embassy
+esp-hal = { version = "=1.0.0-rc.0", features = ["esp32s3", "unstable", "psram"] }
+esp-hal-embassy = { version = "0.9.0", features = ["esp32s3"] }
+embassy-executor = { version = "0.7.0", features = ["task-arena-size-98304"] }
+embassy-time = "0.5.0"
+embassy-sync = "0.7.2"
+embassy-futures = "0.1.1"
+
+# Net + HTTP + Wi-Fi
+esp-wifi = { version = "=0.15.0", features = ["esp32s3", "wifi"] }
+esp-sync = { version = "0.1.1", features = ["esp32s3"] }
+embassy-net = { version = "0.7.1", features = ["tcp", "dhcpv4", "proto-ipv4", "medium-ethernet"] }
+picoserve = { version = "0.16.0", default-features = false, features = ["embassy", "alloc"] }
+
+# Utils
+static_cell = "2.1"
+heapless = "0.8.0"
+embedded-io = "0.6"
+embedded-io-async = "0.6"
+critical-section = "1.2.0"
+embedded-hal = "1.0.0"
+esp-alloc = "0.8.0"
+
+# Logging
+esp-println = { version = "0.15.0", default-features = false, features = ["esp32s3", "log-04", "auto"] }
+log = "0.4.22"
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
 
-critical-section = "1.2.0"
-embedded-io = "0.7.1"
-embedded-hal = "1.0.0"
-esp-alloc = "0.9.0"
-
-esp-println = { version = "0.14.0", features = ["esp32s3", "log-04"] }
-log = "0.4.22"
-arducam-legacy = "0.1.2"
-
-
 [profile.dev]
-# Rust debug is too slow.
-# For debug builds always builds with some optimization
 opt-level = "s"
 
 [profile.release]
-codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+codegen-units    = 1
 debug            = 2
 debug-assertions = false
 incremental      = false
-lto              = 'fat'
-opt-level        = 's'
+lto              = "fat"
+opt-level        = "s"
 overflow-checks  = false
