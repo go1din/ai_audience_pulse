@@ -20,7 +20,7 @@ Firmware for streaming OV2640 JPEG frames from an ESP32-S3 over Wi-Fi using Emba
 - `GET /status` – plain text with frame counter, JPEG offsets, last length, checksum
 - `GET /frame.jpg` – latest captured JPEG frame
 
-The firmware runs a single HTTP worker task, so requests are served sequentially but the latest frame is always available.
+Three HTTP worker tasks run in parallel, so multiple requests can be processed concurrently.
 
 Example download:
 ```
