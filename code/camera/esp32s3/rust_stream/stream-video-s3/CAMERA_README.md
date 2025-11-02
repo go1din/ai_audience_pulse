@@ -97,3 +97,18 @@ The `esp-hal` 1.0.0 Camera API needs to be properly configured with:
 - [esp-hal documentation](https://docs.esp-rs.org/esp-hal/)
 - [OV2640 datasheet](https://www.ov.com/en/product/ov2640/)
 - [Xiao ESP32-S3 Sense documentation](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
+
+
+
+• Review comment:
+
+  - [P0] Do not spin-wait in async capture task — src/bin/main.rs:189-194
+    transfer.wait() at this site busy-spins (while !self.is_done() {}
+  in esp-hal 1.0.0-rc.0) until DMA completes. Because capture_task is an
+  #[embassy_executor::task], this spin loop blocks the single-core Embassy
+  executor so the Wi-Fi runner, TCP stack, and HTTP tasks never get polled while
+  a frame is being captured. In practice the firmware never brings up networking,
+  defeating the whole feature. Please restructure the capture loop so it yields
+  while waiting (e.g. poll transfer.is_done() with a small Timer::after or run the
+  blocking wait in a separate blocking context) instead of calling the blocking
+  wait() directly from the async task.
