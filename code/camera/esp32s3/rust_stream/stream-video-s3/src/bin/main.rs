@@ -41,7 +41,7 @@ use ov2640_tables::{
     OV2640_YUV422,
 };
 
-const HTTP_TASK_POOL_SIZE: usize = 3;
+const HTTP_TASK_POOL_SIZE: usize = 1;
 const FRAME_SIZE: usize = 64 * 1024;
 #[unsafe(link_section = ".dram2_uninit")]
 static mut FRAME_BUFFER: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
@@ -89,6 +89,7 @@ const WIFI_PASS: &str = match option_env!("WIFI_PASS") {
 };
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
+const FRAME_SAMPLE_LEN: usize = 64;
 
 
 fn capture_interval_millis() -> u64 {
@@ -203,6 +204,9 @@ async fn capture_task(
                     let checksum: u32 = buffer[start..start + copy_len]
                         .iter()
                         .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
+                    if copy_len > 0 {
+                        log_frame_sample(buffer, start, copy_len);
+                    }
                     println!(
                         "✓ Captured JPEG: {} bytes (serving {} bytes, checksum 0x{:08X})",
                         full_len, copy_len, checksum
@@ -416,8 +420,20 @@ async fn main(spawner: Spawner) -> ! {
     ov2640_load_jpeg_tables(&mut i2c, addr);
     delay.delay_millis(10);
 
+    println!("  Step 2a: Forcing output selector (YUV422 path)");
+    ov2640_force_output_selector(&mut i2c, addr);
+    delay.delay_millis(10);
+
+    println!("  Step 2b: Fixing color matrix (neutral matrix, disable effects)");
+    ov2640_fix_color_matrix(&mut i2c, addr);
+    delay.delay_millis(10);
+
     println!("  Step 3: Configuring JPEG SVGA mode (quality={})", CAMERA_JPEG_QUALITY);
     ov2640_set_svga_jpeg(&mut i2c, addr, CAMERA_JPEG_QUALITY);
+    delay.delay_millis(10);
+
+    println!("  Step 4: Re-enabling auto controls (AWB/AGC/AEC)");
+    ov2640_re_enable_auto_controls(&mut i2c, addr);
     delay.delay_millis(10);
 
     let mut sensor_id = [0u8; 2];
@@ -502,6 +518,44 @@ fn find_jpeg_range(buffer: &[u8]) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+fn log_frame_sample(buffer: &[u8], start: usize, len: usize) {
+    if len == 0 {
+        println!("sample: empty frame");
+        return;
+    }
+    if start >= buffer.len() {
+        println!("sample: invalid range (start={} len={} available={})", start, len, buffer.len());
+        return;
+    }
+
+    let available = buffer.len() - start;
+    let sample_len = FRAME_SAMPLE_LEN.min(len).min(available);
+    if sample_len == 0 {
+        println!("sample: no bytes available for sampling");
+        return;
+    }
+
+    let sample = &buffer[start..start + sample_len];
+    let non_zero = sample.iter().filter(|&&b| b != 0).count();
+    let approx_green = (non_zero as f32 / sample_len as f32) * 100.0;
+    println!(
+        "sample[0..{}] approx_green={:.1}% (non-zero {}/{})",
+        sample_len.saturating_sub(1),
+        approx_green,
+        non_zero,
+        sample_len
+    );
+
+    let mut line = String::new();
+    for chunk in sample.chunks(16) {
+        line.clear();
+        for byte in chunk {
+            let _ = write!(line, "{:02X} ", byte);
+        }
+        println!("{}", line);
+    }
+}
+
 fn ov2640_reset<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
     let _ = i2c.write(addr, &[0xff, 0x01]);
     let _ = i2c.write(addr, &[0x12, 0x80]);
@@ -520,6 +574,41 @@ fn ov2640_load_jpeg_tables<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
     write_table(i2c, addr, OV2640_JPEG_INIT);
     write_table(i2c, addr, OV2640_YUV422);
     write_table(i2c, addr, OV2640_JPEG);
+}
+
+fn ov2640_force_output_selector<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
+    // Force the correct output selector (some firmwares flip this)
+    // DSP bank
+    let _ = i2c.write(addr, &[0xFF, 0x00]);
+    let _ = i2c.write(addr, &[0xDA, 0x10]);   // YUV422 path (required for JPEG pipeline)
+    // Note: If still greenish, try UV-swap: change 0xDA, 0x10 to 0xDA, 0x11
+    let _ = i2c.write(addr, &[0xD7, 0x03]);   // auto features enabled (as in esp32-camera)
+}
+
+fn ov2640_fix_color_matrix<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
+    // Load a neutral color matrix + no effects (fixes green bias)
+    // DSP bank
+    let _ = i2c.write(addr, &[0xFF, 0x00]);
+    let _ = i2c.write(addr, &[0x7C, 0x00]);
+    let _ = i2c.write(addr, &[0x7D, 0x00]);        // SDE off
+    let _ = i2c.write(addr, &[0x7C, 0x03]);
+    let _ = i2c.write(addr, &[0x7D, 0x40]);
+    let _ = i2c.write(addr, &[0x7D, 0x40]); // mid saturation
+    // CMX1..6 + sign
+    let _ = i2c.write(addr, &[0x4F, 0xCA]);
+    let _ = i2c.write(addr, &[0x50, 0xA8]);
+    let _ = i2c.write(addr, &[0x51, 0x00]);
+    let _ = i2c.write(addr, &[0x52, 0x28]);
+    let _ = i2c.write(addr, &[0x53, 0x70]);
+    let _ = i2c.write(addr, &[0x54, 0x99]);
+    let _ = i2c.write(addr, &[0x58, 0x1A]);
+}
+
+fn ov2640_re_enable_auto_controls<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
+    // Re-enable auto white balance / exposure / gain after the tables
+    // Sensor bank
+    let _ = i2c.write(addr, &[0xFF, 0x01]);
+    let _ = i2c.write(addr, &[0x13, 0xE7]);   // COM8: AWB|AGC|AEC ON
 }
 
 fn ov2640_set_svga_jpeg<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, quality: u8) {
