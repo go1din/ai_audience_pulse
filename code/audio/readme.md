@@ -1,6 +1,7 @@
 # AudioClassifier
 
-A Python class for classifying audio clips into **clapping** and **laughter** categories using the YAMNet deep learning model.
+1. **AudioClassifier**: Classifies audio clips into **clapping** and **laughter** categories.
+2. **AudioProcessor**: Processes real-time audio streams, computes RMS, and sends classification results to a specified endpoint.
 
 ---
 
@@ -8,9 +9,9 @@ A Python class for classifying audio clips into **clapping** and **laughter** ca
 
 - Classifies audio clips into **clapping** and **laughter** categories.
 - Supports both raw WAV data (as NumPy arrays) and WAV files.
+- Real-time audio processing with RMS calculation.
+- Sends classification results to a specified HTTP endpoint.
 - Uses the pre-trained [YAMNet](https://tfhub.dev/google/yamnet/1) model for audio classification.
-
----
 
 ## Requirements
 
@@ -48,5 +49,6 @@ Example output:
 - The classifier uses the following YAMNet class indexes:
   - Clapping: `[58, 61, 62]`
   - Laughter: `[13, 15, 16]`
+- The `AudioProcessor` sends classification results to `http://192.168.20.166:5000/audio/score` by default.
 
 ---
