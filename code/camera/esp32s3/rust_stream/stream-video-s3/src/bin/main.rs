@@ -18,6 +18,16 @@ use esp_hal::{
 use esp_println::{print, println};
 use log::info;
 
+#[path = "../ov2640_tables.rs"]
+mod ov2640_tables;
+
+use ov2640_tables::{
+    OV2640_800X600_JPEG,
+    OV2640_JPEG,
+    OV2640_JPEG_INIT,
+    OV2640_YUV422,
+};
+
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
@@ -107,13 +117,13 @@ fn main() -> ! {
     delay.delay_millis(10);
     
     // Step 2: Initialize sensor (like ov2640_init in ESP-IDF driver)
-    println!("  Step 2: Core sensor initialization");
-    ov2640_init(&mut i2c, addr);
+    println!("  Step 2: Loading JPEG base tables");
+    ov2640_load_jpeg_tables(&mut i2c, addr);
     delay.delay_millis(10);
     
     // Step 3: Configure for JPEG SVGA
     println!("  Step 3: Configuring JPEG SVGA mode");
-    ov2640_jpeg_svga(&mut i2c, addr, 12);
+    ov2640_set_svga_jpeg(&mut i2c, addr, 12);
     delay.delay_millis(10);
 
     // Verify sensor
@@ -316,235 +326,29 @@ fn ov2640_reset<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
     let _ = i2c.write(addr, &[0x12, 0x80]);
 }
 
-fn wr<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, reg: u8, val: u8) {
-    let _ = i2c.write(addr, &[reg, val]);
+fn write_table<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, table: &[(u8, u8)]) {
+    for &(reg, val) in table {
+        if reg == 0xFF && val == 0xFF {
+            break;
+        }
+        let _ = i2c.write(addr, &[reg, val]);
+    }
 }
 
-// Basic OV2640 initialization (based on ESP-IDF ov2640_init)
-fn ov2640_init<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    // Bank DSP
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x2c, 0xff);
-    wr(i2c, addr, 0x2e, 0xdf);
-    
-    // Bank sensor
-    wr(i2c, addr, 0xff, 0x01);
-    wr(i2c, addr, 0x3c, 0x32);
-    wr(i2c, addr, 0x11, 0x00); // CLKRC
-    wr(i2c, addr, 0x09, 0x02); // COM2 - Output drive capability 2x
-    wr(i2c, addr, 0x04, 0x00); // COM1
-    wr(i2c, addr, 0x13, 0xe5); // COM8 - AGC, AWB, AEC enabled
-    wr(i2c, addr, 0x14, 0x48); // COM9
-    wr(i2c, addr, 0x2c, 0x0c); // Reserved
-    wr(i2c, addr, 0x33, 0x78); // Reserved
-    wr(i2c, addr, 0x3a, 0x33); // TSLB
-    wr(i2c, addr, 0x3b, 0xfb); // Reserved
-    wr(i2c, addr, 0x3e, 0x00); // COM14
-    wr(i2c, addr, 0x43, 0x11); // Reserved
-    wr(i2c, addr, 0x16, 0x10); // Reserved
-    wr(i2c, addr, 0x39, 0x02); // Reserved
-    wr(i2c, addr, 0x35, 0x88); // Reserved
-    wr(i2c, addr, 0x22, 0x0a); // Reserved
-    wr(i2c, addr, 0x37, 0x40); // Reserved
-    wr(i2c, addr, 0x23, 0x00); // Reserved
-    wr(i2c, addr, 0x34, 0xa0); // ARCOM2
-    wr(i2c, addr, 0x06, 0x02); // Reserved
-    wr(i2c, addr, 0x06, 0x88); // Reserved
-    wr(i2c, addr, 0x07, 0xc0); // Reserved
-    wr(i2c, addr, 0x0d, 0xb7); // Reserved
-    wr(i2c, addr, 0x0e, 0x01); // Reserved
-    
-    // Bank DSP
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0xc0, 0xc8); // HSIZE
-    wr(i2c, addr, 0xc1, 0x96); // VSIZE
-    wr(i2c, addr, 0x86, 0x3d); // Reserved
-    wr(i2c, addr, 0x50, 0x89); // CTRLI
-    wr(i2c, addr, 0x51, 0x90); // HSIZE8
-    wr(i2c, addr, 0x52, 0x2c); // VSIZE8
-    wr(i2c, addr, 0x53, 0x00); // XOFFL
-    wr(i2c, addr, 0x54, 0x00); // YOFFL
-    wr(i2c, addr, 0x55, 0x88); // VHYX
-    wr(i2c, addr, 0x57, 0x00); // TEST
-    wr(i2c, addr, 0x5a, 0x40); // ZMOW
-    wr(i2c, addr, 0x5b, 0xf0); // ZMOH
-    wr(i2c, addr, 0x5c, 0x01); // ZMHH
-    wr(i2c, addr, 0xd3, 0x04); // Reserved
-    wr(i2c, addr, 0xe0, 0x00); // RESET
+fn ov2640_load_jpeg_tables<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
+    write_table(i2c, addr, OV2640_JPEG_INIT);
+    write_table(i2c, addr, OV2640_YUV422);
+    write_table(i2c, addr, OV2640_JPEG);
 }
 
-// Simpler RGB565 configuration for 240x240
-fn ov2640_rgb565_240x240<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    // Bank DSP
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x2c, 0xff);
-    wr(i2c, addr, 0x2e, 0xdf);
-    
-    // Bank sensor  
-    wr(i2c, addr, 0xff, 0x01);
-    wr(i2c, addr, 0x12, 0x40); // COM7: RGB mode
-    wr(i2c, addr, 0x11, 0x00); // CLKRC
-    wr(i2c, addr, 0x0c, 0x00); // COM3
-    wr(i2c, addr, 0x3e, 0x00); // COM14
-    wr(i2c, addr, 0x04, 0x00); // COM1
-    wr(i2c, addr, 0x40, 0xd0); // COM15: RGB565
-    wr(i2c, addr, 0x3a, 0x14); // TSLB
-    wr(i2c, addr, 0x14, 0x4a); // COM9
-    
-    // AWB and other settings
-    wr(i2c, addr, 0x13, 0xe7); // COM8: AWB, AGC, AEC
-    wr(i2c, addr, 0x24, 0x70);
-    wr(i2c, addr, 0x25, 0x60);
-    wr(i2c, addr, 0x26, 0xa4);
-    
-    // Bank DSP - RGB565 output
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0xda, 0x08); // Image output format: RGB565
-    wr(i2c, addr, 0xd7, 0x03); // Output format control
-    wr(i2c, addr, 0xe0, 0x00); // Reset
-    wr(i2c, addr, 0xc0, 0xc8); // HSIZE
-    wr(i2c, addr, 0xc1, 0x96); // VSIZE
-    wr(i2c, addr, 0x86, 0x3d);
-    wr(i2c, addr, 0x50, 0x89);
-    wr(i2c, addr, 0x51, 0x90);
-    wr(i2c, addr, 0x52, 0x2c);
-    wr(i2c, addr, 0x53, 0x00);
-    wr(i2c, addr, 0x54, 0x00);
-    wr(i2c, addr, 0x55, 0x88);
-    wr(i2c, addr, 0x57, 0x00);
-    wr(i2c, addr, 0x5a, 0xf0); // 240
-    wr(i2c, addr, 0x5b, 0xf0); // 240
-    wr(i2c, addr, 0x5c, 0x00);
-    
-    // Ensure output is enabled and start free-running mode
-    wr(i2c, addr, 0xff, 0x01);
-    wr(i2c, addr, 0x15, 0x00); // COM10: no HREF/VSYNC change on PCLK
-    wr(i2c, addr, 0x12, 0x40); // COM7: Confirm RGB
-    
-    // Enable output and start frame generation
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x44, 0x00); // Enable output
-}
+fn ov2640_set_svga_jpeg<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, quality: u8) {
+    let quality = quality.min(63);
 
-fn ov2640_jpeg_svga<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, quality: u8) {
-    // Bank DSP
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x2c, 0xff);
-    wr(i2c, addr, 0x2e, 0xdf);
-    
-    // Bank sensor
-    wr(i2c, addr, 0xff, 0x01);
-    wr(i2c, addr, 0x3c, 0x32);
-    wr(i2c, addr, 0x11, 0x00);
-    wr(i2c, addr, 0x09, 0x02);
-    wr(i2c, addr, 0x04, 0x28);
-    wr(i2c, addr, 0x13, 0xe5);
-    wr(i2c, addr, 0x14, 0x48);
-    wr(i2c, addr, 0x2c, 0x0c);
-    wr(i2c, addr, 0x33, 0x78);
-    wr(i2c, addr, 0x3a, 0x33);
-    wr(i2c, addr, 0x3b, 0xfb);
-    wr(i2c, addr, 0x3e, 0x00);
-    wr(i2c, addr, 0x43, 0x11);
-    wr(i2c, addr, 0x16, 0x10);
-    wr(i2c, addr, 0x39, 0x02);
-    wr(i2c, addr, 0x35, 0x88);
-    wr(i2c, addr, 0x22, 0x0a);
-    wr(i2c, addr, 0x37, 0x40);
-    wr(i2c, addr, 0x23, 0x00);
-    wr(i2c, addr, 0x34, 0xa0);
-    wr(i2c, addr, 0x06, 0x02);
-    wr(i2c, addr, 0x06, 0x88);
-    wr(i2c, addr, 0x07, 0xc0);
-    wr(i2c, addr, 0x0d, 0xb7);
-    wr(i2c, addr, 0x0e, 0x01);
-    wr(i2c, addr, 0x4c, 0x00);
-    wr(i2c, addr, 0x4a, 0x81);
-    wr(i2c, addr, 0x21, 0x99);
-    wr(i2c, addr, 0x24, 0x40);
-    wr(i2c, addr, 0x25, 0x38);
-    wr(i2c, addr, 0x26, 0x82);
-    wr(i2c, addr, 0x5c, 0x00);
-    wr(i2c, addr, 0x63, 0x00);
-    wr(i2c, addr, 0x46, 0x22);
-    wr(i2c, addr, 0x0c, 0x3a);
-    wr(i2c, addr, 0x5d, 0x55);
-    wr(i2c, addr, 0x5e, 0x7d);
-    wr(i2c, addr, 0x5f, 0x7d);
-    wr(i2c, addr, 0x60, 0x55);
-    wr(i2c, addr, 0x61, 0x70);
-    wr(i2c, addr, 0x62, 0x80);
-    wr(i2c, addr, 0x7c, 0x05);
-    wr(i2c, addr, 0x20, 0x80);
-    wr(i2c, addr, 0x28, 0x30);
-    wr(i2c, addr, 0x6c, 0x00);
-    wr(i2c, addr, 0x6d, 0x80);
-    wr(i2c, addr, 0x6e, 0x00);
-    wr(i2c, addr, 0x70, 0x02);
-    wr(i2c, addr, 0x71, 0x94);
-    wr(i2c, addr, 0x73, 0xc1);
-    wr(i2c, addr, 0x3d, 0x34);
-    wr(i2c, addr, 0x12, 0x04);
-    wr(i2c, addr, 0x5a, 0x57);
-    wr(i2c, addr, 0x4f, 0xbb);
-    wr(i2c, addr, 0x50, 0x9c);
-    
-    // Bank DSP - JPEG
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0xe0, 0x04);
-    wr(i2c, addr, 0xc0, 0xc8);
-    wr(i2c, addr, 0xc1, 0x96);
-    wr(i2c, addr, 0x86, 0x3d);
-    wr(i2c, addr, 0x50, 0x89);
-    wr(i2c, addr, 0x51, 0x90);
-    wr(i2c, addr, 0x52, 0x2c);
-    wr(i2c, addr, 0x53, 0x00);
-    wr(i2c, addr, 0x54, 0x00);
-    wr(i2c, addr, 0x55, 0x88);
-    wr(i2c, addr, 0x57, 0x00);
-    wr(i2c, addr, 0x5a, 0xa0);
-    wr(i2c, addr, 0x5b, 0x78);
-    wr(i2c, addr, 0x5c, 0x00);
-    wr(i2c, addr, 0xd3, 0x04);
-    wr(i2c, addr, 0xe0, 0x00);
-    
-    // YUV422
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x05, 0x00);
-    wr(i2c, addr, 0xda, 0x00);
-    wr(i2c, addr, 0xd7, 0x03);
-    wr(i2c, addr, 0xe0, 0x00);
-    
-    // SVGA 800x600
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0xe0, 0x04);
-    wr(i2c, addr, 0xc0, 0xc8);
-    wr(i2c, addr, 0xc1, 0x96);
-    wr(i2c, addr, 0x86, 0x3d);
-    wr(i2c, addr, 0x50, 0x89);
-    wr(i2c, addr, 0x51, 0x90);
-    wr(i2c, addr, 0x52, 0x2c);
-    wr(i2c, addr, 0x53, 0x00);
-    wr(i2c, addr, 0x54, 0x00);
-    wr(i2c, addr, 0x55, 0x88);
-    wr(i2c, addr, 0x5a, 0xc8);
-    wr(i2c, addr, 0x5b, 0x96);
-    wr(i2c, addr, 0x5c, 0x00);
-    wr(i2c, addr, 0xd3, 0x02);
-    wr(i2c, addr, 0xe0, 0x00);
-    
-    // Quality
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0xe0, 0x04);
-    wr(i2c, addr, 0xdb, quality);
-    wr(i2c, addr, 0xe0, 0x00);
-    
-    // Final
-    wr(i2c, addr, 0xff, 0x01);
-    wr(i2c, addr, 0x04, 0x28);
-    wr(i2c, addr, 0x15, 0x00); // COM10: VSYNC negative, HREF changes on PCLK, free-running
-    
-    // Enable output
-    wr(i2c, addr, 0xff, 0x00);
-    wr(i2c, addr, 0x44, 0x00); // Enable DVP output
+    let _ = i2c.write(addr, &[0xFF, 0x01]); // Sensor bank
+    let _ = i2c.write(addr, &[0x15, 0x00]); // Enable free-running VSYNC
+
+    write_table(i2c, addr, OV2640_800X600_JPEG);
+
+    let _ = i2c.write(addr, &[0xFF, 0x00]); // DSP bank
+    let _ = i2c.write(addr, &[0x44, quality]); // JPEG quality
 }
