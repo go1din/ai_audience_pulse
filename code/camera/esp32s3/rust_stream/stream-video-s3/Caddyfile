@@ -1,0 +1,13 @@
+https://localhost:8443 {
+    reverse_proxy http://192.168.129.111
+    header {
+        Access-Control-Allow-Origin  *
+        Access-Control-Allow-Methods "GET, OPTIONS"
+        Access-Control-Allow-Headers *
+        Access-Control-Max-Age 86400
+        Cache-Control "no-cache"
+    }
+    @jpeg path /frame.jpeg
+    rewrite @jpeg /frame.jpg
+    tls internal
+}

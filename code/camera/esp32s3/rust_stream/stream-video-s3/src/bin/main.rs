@@ -76,6 +76,8 @@ impl FrameStore {
 static FRAME_STORE: Mutex<CriticalSectionRawMutex, FrameStore> = Mutex::new(FrameStore::new());
 static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 500;
+const HTTP_TASK_POOL_SIZE: usize = 3;
 const WIFI_SSID: &str = match option_env!("WIFI_SSID") {
     Some(val) => val,
     None => "ESP32_WIFI",
@@ -85,6 +87,17 @@ const WIFI_PASS: &str = match option_env!("WIFI_PASS") {
     None => "password",
 };
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+
+fn capture_interval_millis() -> u64 {
+    match option_env!("CAPTURE_INTERVAL_MS") {
+        Some(val) => val
+            .parse::<u64>()
+            .ok()
+            .filter(|ms| *ms > 0)
+            .unwrap_or(DEFAULT_CAPTURE_INTERVAL_MS),
+        None => DEFAULT_CAPTURE_INTERVAL_MS,
+    }
+}
 
 #[embassy_executor::task]
 async fn net_task(
@@ -145,6 +158,7 @@ async fn ip_reporter_task(stack: embassy_net::Stack<'static>) {
     stack.wait_config_up().await;
     if let Some(v4) = stack.config_v4() {
         esp_println::println!("Wi-Fi connected with IPv4: {:?}", v4);
+        esp_println::println!("🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄");
     }
     loop {
         Timer::after_millis(60_000).await;
@@ -156,6 +170,9 @@ async fn capture_task(
     mut camera: Camera<'static>,
     mut rx_buffer: DmaRxBuf,
 ) -> ! {
+    let interval_ms = capture_interval_millis();
+    println!("[capture] interval set to {} ms", interval_ms);
+
     loop {
         FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
         println!("[Frame {}] Starting capture...", FRAME_COUNTER.load(Ordering::Relaxed));
@@ -166,7 +183,7 @@ async fn capture_task(
                 println!("Failed to start transfer: {:?}", e);
                 camera = cam;
                 rx_buffer = buf;
-                Timer::after_millis(500).await;
+                Timer::after_millis(interval_ms).await;
                 continue;
             }
         };
@@ -213,7 +230,7 @@ async fn capture_task(
             }
         }
 
-        Timer::after_secs(1).await;
+        Timer::after_millis(interval_ms).await;
     }
 }
 
@@ -255,8 +272,9 @@ async fn http_status_route() -> impl ps::response::IntoResponse {
     (StatusCode::OK, ("Content-Type", "text/plain"), body,)
 }
 
-#[embassy_executor::task]
+#[embassy_executor::task(pool_size = HTTP_TASK_POOL_SIZE)]
 async fn http_task(
+    worker_id: usize,
     stack: embassy_net::Stack<'static>,
 ) -> ! {
     use ps::routing::get;
@@ -277,7 +295,7 @@ async fn http_task(
     let mut tcp_tx = [0u8; 2048];
     let mut http_buf = [0u8; 2048];
 
-    println!("HTTP server listening on port 80");
+    println!("HTTP server listening on port 80 (worker #{})", worker_id);
     ps::listen_and_serve(
         "camera-http",
         &app,
@@ -329,7 +347,8 @@ async fn main(spawner: Spawner) -> ! {
         .init(esp_wifi::init(timg0.timer0, rng).expect("wifi init"));
     let (controller, interfaces) = esp_wifi::wifi::new(wifi_ctrl, p.WIFI).expect("wifi new");
 
-    static NET_STACK_RES: StaticCell<embassy_net::StackResources<4>> = StaticCell::new();
+    static NET_STACK_RES: StaticCell<embassy_net::StackResources<{ HTTP_TASK_POOL_SIZE + 3 }>> =
+        StaticCell::new();
     let (stack, runner) = {
         let cfg = embassy_net::Config::dhcpv4(Default::default());
         let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
@@ -344,7 +363,9 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(net_task(runner)).ok();
     spawner.spawn(wifi_task(controller)).ok();
     spawner.spawn(ip_reporter_task(stack)).ok();
-    spawner.spawn(http_task(stack)).ok();
+    for worker_id in 0..HTTP_TASK_POOL_SIZE {
+        spawner.spawn(http_task(worker_id, stack)).ok();
+    }
 
     // Camera setup
     let delay = Delay::new();
