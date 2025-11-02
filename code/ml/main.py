@@ -13,7 +13,6 @@ LINE_WIDTH = 1
 FONT_SIZE = 1
 CONFIDENCE_THRESHOLD = 0.2
 
-
 def main():
     detection_model_path = "../../assets/yolov12n-face.pt"
     image_path = "../../assets/sample_images/" 
@@ -60,8 +59,18 @@ def load_detection_model(detection_model_path):
         print(f"ERROR: Unexpected error: {e}")
 
 def save_to_duckdb(df, db_file_path, table_name):
-    """
-    Connects to a local DuckDB file and bulk inserts the data into the specified table.
+    """Connects to a local DuckDB file and bulk inserts data.
+
+    This function establishes a connection to a specified local DuckDB file
+    and performs a bulk insertion of data from the input DataFrame into
+    the designated table.
+
+    Args:
+        df (pandas.DataFrame or similar): The DataFrame containing the data
+            to be inserted into the database.
+        db_file_path (str): The file path for the local DuckDB database.
+        table_name (str): The name of the table in the database to insert
+            the data into.
     """
     logging.info(f"Connecting to DuckDB file: {db_file_path}")
 
@@ -83,9 +92,22 @@ def save_to_duckdb(df, db_file_path, table_name):
             logging.error(f"Failed to bulk insert data into DuckDB: {e}")
 
 def inference_images(model, image_paths, db_file_path, table_name, output_dir_path):
-    """
-    Runs YOLO prediction frame-by-frame on a sequence of images (frames) 
-    to allow custom annotation size and saves the annotated images to a new directory.
+    """Runs YOLO prediction frame-by-frame on images and saves annotated images.
+
+    This function processes a sequence of images (frames) using a YOLO model
+    to perform object detection, allowing for custom annotation size. The
+    annotated images are then saved to a specified output directory.
+
+    Args:
+        model: The loaded YOLO model instance used for inference.
+        image_paths (list of str): A list of file paths to the images (frames)
+            to be processed.
+        db_file_path (str): The file path for the SQLite database where
+            prediction results might be stored (though saving logic is not
+            shown, this argument suggests its purpose).
+        table_name (str): The name of the table within the database to be used.
+        output_dir_path (str): The path to the directory where the annotated
+            images will be saved.
     """
     if model is None:
         logging.error("Inference skipped because the model failed to load.")
@@ -288,7 +310,6 @@ def inference_images(model, image_paths, db_file_path, table_name, output_dir_pa
     con.close()
     logging.info(f"Processing complete! Annotated images saved to: {output_dir_path}")
     return []
-
 
 if __name__ == "__main__":
     main()
