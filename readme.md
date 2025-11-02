@@ -15,8 +15,7 @@ check out [readme.md](code/README.md) for proper setup instructions.
 
 ## how to run the remote esp32 cameras
 
-> TODO: add instructions here or in `code/camera`
-
+see [Camera readme](code/camera/esp32s3/README.md)
 ## Explanation (remove eventually)
 
 Please make sure that everything, that is code related, goes into `code` directory.
