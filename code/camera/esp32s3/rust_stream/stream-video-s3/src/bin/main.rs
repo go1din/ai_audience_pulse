@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{fmt::Write, sync::atomic::{AtomicU32, Ordering}};
 
 use embassy_executor::Spawner;
@@ -29,6 +29,7 @@ use esp_hal::{
 use esp_println::println;
 use picoserve as ps;
 use ps::response::StatusCode;
+use embedded_io_async::Write as AsyncWrite;
 use static_cell::StaticCell;
 
 #[path = "../ov2640_tables.rs"]
@@ -41,9 +42,12 @@ use ov2640_tables::{
     OV2640_YUV422,
 };
 
+const HTTP_TASK_POOL_SIZE: usize = 1;
 const FRAME_SIZE: usize = 64 * 1024;
 #[unsafe(link_section = ".dram2_uninit")]
 static mut FRAME_BUFFER: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
+static mut HTTP_RESPONSE_BUFFERS_PTR: [*mut [u8; FRAME_SIZE]; HTTP_TASK_POOL_SIZE] =
+    [core::ptr::null_mut(); HTTP_TASK_POOL_SIZE];
 const DESC_COUNT: usize = 32;
 #[unsafe(link_section = ".dram2_uninit")]
 static mut DMA_DESCRIPTORS: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
@@ -76,8 +80,7 @@ impl FrameStore {
 static FRAME_STORE: Mutex<CriticalSectionRawMutex, FrameStore> = Mutex::new(FrameStore::new());
 static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 500;
-const HTTP_TASK_POOL_SIZE: usize = 3;
+const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 1_000;
 const WIFI_SSID: &str = match option_env!("WIFI_SSID") {
     Some(val) => val,
     None => "ESP32_WIFI",
@@ -87,6 +90,61 @@ const WIFI_PASS: &str = match option_env!("WIFI_PASS") {
     None => "password",
 };
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
+
+enum FrameBody<'a> {
+    Message(&'static [u8]),
+    Jpeg(&'a [u8]),
+}
+
+impl<'a> ps::response::Content for FrameBody<'a> {
+    fn content_type(&self) -> &'static str {
+        match self {
+            FrameBody::Message(_) => "text/plain; charset=utf-8",
+            FrameBody::Jpeg(_) => "image/jpeg",
+        }
+    }
+
+    fn content_length(&self) -> usize {
+        match self {
+            FrameBody::Message(bytes) => bytes.len(),
+            FrameBody::Jpeg(bytes) => bytes.len(),
+        }
+    }
+
+    async fn write_content<W: AsyncWrite>(
+        self,
+        mut writer: W,
+    ) -> Result<(), W::Error> {
+        let bytes = match self {
+            FrameBody::Message(bytes) => bytes,
+            FrameBody::Jpeg(bytes) => bytes,
+        };
+        writer.write_all(bytes).await
+    }
+}
+
+fn http_frame_buffer_slice(start: usize, end: usize) -> &'static [u8] {
+    unsafe { &FRAME_BUFFER[start..end] }
+}
+
+fn init_http_response_buffers() {
+    for idx in 0..HTTP_TASK_POOL_SIZE {
+        unsafe {
+            if HTTP_RESPONSE_BUFFERS_PTR[idx].is_null() {
+                HTTP_RESPONSE_BUFFERS_PTR[idx] =
+                    Box::leak(Box::new([0u8; FRAME_SIZE])) as *mut [u8; FRAME_SIZE];
+            }
+        }
+    }
+}
+
+fn http_response_buffer(worker_id: usize) -> &'static mut [u8; FRAME_SIZE] {
+    let ptr = unsafe { HTTP_RESPONSE_BUFFERS_PTR[worker_id] };
+    assert!(!ptr.is_null(), "HTTP response buffers not initialised");
+    unsafe { &mut *ptr }
+}
+
 
 fn capture_interval_millis() -> u64 {
     match option_env!("CAPTURE_INTERVAL_MS") {
@@ -234,7 +292,7 @@ async fn capture_task(
     }
 }
 
-async fn http_frame_route() -> impl ps::response::IntoResponse {
+async fn http_frame_route(worker_id: usize) -> impl ps::response::IntoResponse {
     let store = FRAME_STORE.lock().await;
     let len = store.len;
     let start = store.start;
@@ -242,17 +300,20 @@ async fn http_frame_route() -> impl ps::response::IntoResponse {
     drop(store);
 
     if len == 0 {
-        let body = Vec::from(b"frame not ready\n".as_slice());
-        return (StatusCode::SERVICE_UNAVAILABLE, ("Content-Type", "text/plain"), body);
+        return ps::response::Response::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            FrameBody::Message(FRAME_NOT_READY),
+        );
     }
 
-    let mut body = Vec::with_capacity(len);
     let end = start.saturating_add(len).min(FRAME_SIZE);
-    unsafe {
-        body.extend_from_slice(&FRAME_BUFFER[start..end]);
-    }
-    println!("HTTP /frame.jpg len={} checksum=0x{:08X}", len, checksum);
-    (StatusCode::OK, ("Content-Type", "image/jpeg"), body)
+    let copy_len = end.saturating_sub(start);
+    let src = http_frame_buffer_slice(start, end);
+    let dest = http_response_buffer(worker_id);
+    dest[..copy_len].copy_from_slice(src);
+    let body_slice = &dest[..copy_len];
+    println!("HTTP /frame.jpg len={} checksum=0x{:08X}", copy_len, checksum);
+    ps::response::Response::new(StatusCode::OK, FrameBody::Jpeg(body_slice))
 }
 
 async fn http_status_route() -> impl ps::response::IntoResponse {
@@ -279,8 +340,13 @@ async fn http_task(
 ) -> ! {
     use ps::routing::get;
 
+    let frame_route = {
+        let worker_id = worker_id;
+        move || http_frame_route(worker_id)
+    };
+
     let app = ps::Router::new()
-        .route("/frame.jpg", get(http_frame_route))
+        .route("/frame.jpg", get(frame_route))
         .route("/status", get(http_status_route))
         .route("/", get(|| async { "OK\n" }));
 
@@ -313,7 +379,7 @@ async fn http_task(
 async fn main(spawner: Spawner) -> ! {
     let p = esp_hal::init(esp_hal::Config::default());
 
-    esp_alloc::heap_allocator!(size: 96 * 1024);
+    esp_alloc::heap_allocator!(size: 160 * 1024);
     {
         let (psram_start, psram_size) = esp_hal::psram::psram_raw_parts(&p.PSRAM);
         if psram_size >= core::mem::size_of::<usize>() * 2 {
@@ -335,6 +401,8 @@ async fn main(spawner: Spawner) -> ! {
 
     esp_println::logger::init_logger(log::LevelFilter::Info);
     println!("=== ESP32-S3 Camera Wi-Fi Stream ===");
+
+    init_http_response_buffers();
 
     let mut rng = Rng::new(p.RNG);
     let timg0 = TimerGroup::new(p.TIMG0);
