@@ -8,7 +8,7 @@ Freestyle Challenge Group 3.1
 
 you need python, uv & zx on a "modern" unix.
 
-Ubuntu setup has been tested, uv & zx installation instructions are [here](code/README.md#install)
+Ubuntu setup has been tested, uv & zx installation instructions are [here](code/README.md#install).
 OSX works as well and has been tested.
 We dont take responsibility for running it on Windows. 
 
