@@ -1,5 +1,5 @@
 The MIT License (MIT)
-    Copyright © 2025 Igor Romanov, Vitaliy Davats, Tim Breitenbach, Gali Shai, Timo Schirmeier, Tobias Tyring, Michael Goldi, Gali Shai, Timo Schirmeier, Tobias Tyring, Michael Goldinn
+    Copyright © 2025 Igor Romanov, Vitaliy Davats, Tim Breitenbach, Gali Shai, Timo Schirmeier, Tobias Thüring, Michael Goldi, Gali Shai, Lukasz Gintowt
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
