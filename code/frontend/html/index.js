@@ -1,5 +1,10 @@
+const netConfig = document.getElementById('network-config').textContent || "{}"
+console.log(netConfig)
+const {origin} = JSON.parse(netConfig)
+
 const config = {
   video: { width: 1280, height: 720, fps: 30 },
+  origin,
 };
 let videoWidth, videoHeight, drawingContext, canvas, gestureEstimator;
 let model;
@@ -11,8 +16,8 @@ window.currentNoisePeak = 0; // Expose peak for clapping detection
 let thresholdCrossed = false; // Track if we've already logged crossing the threshold
 
 const CLAP_THRESHOLD = 80; // Peak noise level to trigger clap emoji
-const CAMERA_BASE_URL = 'https://192.168.20.166:8443/img'; // Network camera feed base URL
-const AUDIO_SCORE_URL = 'https://192.168.20.166:8443/audio/score'; // Audio analysis score endpoint
+const CAMERA_BASE_URL = `${config.origin}/img`; // Network camera feed base URL
+const AUDIO_SCORE_URL = `${config.origin}/audio/score`; // Audio analysis score endpoint
 
 const gestureStrings = {
   thumbs_up: '👍',
