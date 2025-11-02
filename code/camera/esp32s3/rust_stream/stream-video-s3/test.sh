@@ -1,8 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
-rm -f frame.jpg
+URL="${1:-http://192.168.129.111/frame.jpg}"
 
-curl -s http://192.168.129.111/frame.jpg \
-| magick - -colorspace sRGB -resize 1x1\! -format "%[pixel:p{0,0}]\n" info: \
-| tr -d '[:alpha:()] ' \
-| awk -F, '{r=$1+0; g=$2+0; b=$3+0; printf("R=%d G=%d B=%d  greenness=%.1f%%\n", r,g,b, 100*g/(r+g+b))}'
+curl -fsS "$URL" \
+| magick - -colorspace sRGB -resize 1x1\! \
+    -format '%[fx:mean.r] %[fx:mean.g] %[fx:mean.b] %[fx:0.2126*mean.r+0.7152*mean.g+0.0722*mean.b]\n' info: \
+| awk '{
+    r=$1; g=$2; b=$3; y=$4;               # all in 0..1
+    gi = (r+g+b>0)? g/(r+g+b) : 0;
+    printf("R=%d G=%d B=%d  greenness=%.1f%%  brightness=%.1f%%\n",
+           int(255*r), int(255*g), int(255*b), 100*gi, 100*y);
+    if (100*y < 5) { print "⚠︎ frame looks BLACK (<5% brightness)"; }
+}'
