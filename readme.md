@@ -1,9 +1,23 @@
-# BaselHack Code Repo Template
+# BaselHack 2025
 
-This is the template repository, which makes our lives (and especially the lives of the jury) easier,
-if you follow our structure.
+Freestyle Challenge Group 3.1
 
-## Explanation
+[thumbsup](./assets/thumbup.jpg)
+
+## how to run the web parts
+
+you need python, uv & zx on a "modern" unix.
+
+Ubuntu setup has been tested, uv & zx installation instructions are [here](code/README.md#install)
+OSX works, but setup procedure has not been tested
+
+check out [readme.md](code/README.md) for proper setup instructions.
+
+## how to run the remote esp32 cameras
+
+> TODO: add instructions here or in `code/camera`
+
+## Explanation (remove eventually)
 
 Please make sure that everything, that is code related, goes into `code` directory.
 
@@ -11,7 +25,3 @@ If you have documentation about the code (e.g. UML Diagrams, a readme etc.), tha
 
 If you have assets (like videos, presentations etc.), this can go into the `assets` directory.
 
-You can use the MIT license in this template. Make sure to adjust the copy right holders in the placeholder `<copyright holder>` and add every team member to it.
-You are also free to choose any other license - depending on the consensus of your team.
-
-Thanks a lot!

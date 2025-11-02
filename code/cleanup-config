@@ -1,0 +1,2 @@
+rm frontend/html/config.json
+rm Caddyfile

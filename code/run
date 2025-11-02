@@ -1,0 +1,3 @@
+#!/usr/bin/env zx
+
+$`uv run api.py`

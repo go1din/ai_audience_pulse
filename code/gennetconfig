@@ -1,0 +1,30 @@
+#!/usr/bin/env zx
+
+const BACKEND = '127.0.0.1:5000'
+
+let args = process.argv
+const IP = process.argv[args.length-1]
+
+/* FRONTEND net config */
+async function generateFrontendConfig(IP) {
+	const config = {origin: `https://${IP}:8443`}
+	const config_json = JSON.stringify(config)
+	console.log('generate network config.json', IP)
+	await $`echo ${config_json} | tee frontend/html/config.json`
+}
+
+/* TLS-Terminator */
+async function generateBackendConfig(IP) {
+	const caddyFile = [
+		'#Caddyfile',
+		`${IP}:8443 {\n\ttls internal\n\treverse_proxy ${BACKEND}\n}`,
+		`${IP}:443 {\n\troot * ./frontend/html\n\tfile_server\n}`
+	].join('\n')
+	await $`echo ${caddyFile} | tee ./Caddyfile`
+}
+
+await generateFrontendConfig(IP)
+await generateBackendConfig(IP)
+
+console.log('\n\n/// 👷 network-config finished \\\\\\\n\n')
+console.log(`please start backend with:\n\tsudo caddy run\nand visit https://${IP}/`)

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+generate_net_config () {
+  zx gennetconfig $1
+}
+
+# Detect the primary Wi-Fi interface (common names: wlan0, wlp3s0, etc.)
+WIFI_INTERFACE=$(ip -o link show | awk '/^[0-9]+: (wlan|wlp)/ {print $2; exit}' | sed 's/://')
+
+# Check if a Wi-Fi interface was found
+if [ -z "$WIFI_INTERFACE" ]; then
+    echo "No Wi-Fi interface found."
+    exit 1
+fi
+
+# Get the IPv4 address assigned to the Wi-Fi interface
+IPV4_ADDRESS=$(ip -4 -o addr show "$WIFI_INTERFACE" | awk '{print $4}' | cut -d'/' -f1)
+
+# Output the result
+if [ -n "$IPV4_ADDRESS" ]; then
+    echo "Wi-Fi Interface: $WIFI_INTERFACE"
+    echo "IPv4 Address: $IPV4_ADDRESS"
+else
+    echo "No IPv4 address assigned to $WIFI_INTERFACE."
+fi   
+
+echo "Generating config.js with this settings"
+read -p "Do you want to proceed? (y/n) " yn
+case $yn in
+  [Yy]*) generate_net_config $IPV4_ADDRESS;;
+  [Nn]*) echo "No";;
+  *) echo "Invalid input";;
+esac
