@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# this script installs
+#  - zx for running shell scripts https://github.com/google/zx?tab=readme-ov-file
+#  - uv for installing python packages fast https://github.com/astral-sh/uv
+
+install_ubuntu () {
+  echo we might need sudo permission to install zx \& uv one time
+  echo installing script runner
+  sudo apt install zx
+  zx --version
+  echo installing python package manager
+  sudo snap install astral-uv --classic
+  uv --version
+  echo done, please run \'zx run\' or \'npm start\'
+}
+
+install_mac () {
+  echo "not implemented"
+  exit 1
+  echo run "try 'npm install zx' if it does not work on mac"
+  echo run "try 'brew uv' if it does not work on mac"
+}
+
+distro=`lsb_release -i | grep ^'Distributor ID:' | sed 's/Distributor ID:\t//g'`
+echo $distro installation started
+if [ "Ubuntu" = "$distro" ];
+then
+  install_ubuntu
+else
+  echo "OS not supported"
+  exit 1
+fi
