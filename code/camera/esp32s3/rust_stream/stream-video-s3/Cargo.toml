@@ -1,0 +1,38 @@
+[package]
+edition      = "2024"
+name         = "stream-video-s3"
+rust-version = "1.88"
+version      = "0.1.0"
+
+[[bin]]
+name = "stream-video-s3"
+path = "./src/bin/main.rs"
+
+[dependencies]
+esp-hal = { version = "1.0.0", features = ["esp32s3", "unstable"] }
+
+esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s3"] }
+
+critical-section = "1.2.0"
+embedded-io = "0.7.1"
+embedded-hal = "1.0.0"
+esp-alloc = "0.9.0"
+
+esp-println = { version = "0.14.0", features = ["esp32s3", "log-04"] }
+log = "0.4.22"
+arducam-legacy = "0.1.2"
+
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+debug            = 2
+debug-assertions = false
+incremental      = false
+lto              = 'fat'
+opt-level        = 's'
+overflow-checks  = false
