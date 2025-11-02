@@ -1,5 +1,10 @@
 # code setup and configuration instructions
 
+## todo:
+
+- [ ] use frontend/html/config.json to configure the frontend part too, currently its embedded in frontend/html/index.html
+
+
 ![thumbsup](../assets/thumbup.jpg)
 
 ## install
@@ -29,11 +34,7 @@
 
 `sudo caddy run`
 
-### todo:
+## non-goals at this point:
 
-- [ ] use frontend/html/config.json to configure the frontend part too, currently its embedded in frontend/html/index.html
-
-### non-goals at this point:
-
-- __[ ] integrate ml backend__ (unfortunately too much, but it - face detection & emotion classification -  works locally on linux), [extras](ml/readme.md)
-- __[ ] integrate second frontend__ (works with mocked data and is 🎉 beauuuuitiful 🎉, but non-functional- our UX vibe coding study experiment)
+- ~~[ ] integrate ml backend~~ (unfortunately too much, but it - face detection & emotion classification -  works locally on linux), but we have some machine-learning sauce in the frontend anyway click 🍝 [extras](ml/readme.md) 🍝 if you have too much time for reviewing our efforts
+- ~~[ ] integrate second frontend~~ (works with mocked data and is 🎉 beauuuuitiful 🎉, but non-functional- our UX vibe coding study experiment)
