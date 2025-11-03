@@ -1,6 +1,6 @@
 # ESP32-S3 Camera Stream
 
-Firmware for streaming OV2640 JPEG frames from an ESP32-S3 over Wi-Fi using Embassy and picoserve.
+Firmware for streaming OV2640 JPEG frames from an ESP32-S3 over Wi-Fi using Embassy.
 
 ## Firmware Configuration
 
@@ -8,29 +8,47 @@ Firmware for streaming OV2640 JPEG frames from an ESP32-S3 over Wi-Fi using Emba
   - `WIFI_SSID`
   - `WIFI_PASS`
 - Optional capture interval override (`CAPTURE_INTERVAL_MS`). Defaults to `1000`.
+- Optional debug mode (`DEBUG=1`) to enable verbose frame diagnostics. Defaults to `0` (disabled).
 - If the variables are not set, the firmware falls back to `ESP32_WIFI` / `password`.
 - On boot you will see a log line similar to:
   ```
   [wifi] starting with SSID 'MyNetwork' and password 'hunter2'
   ```
 
-## HTTP Endpoints
+## MJPEG Streaming
 
-- `GET /` – health probe, returns `OK`
-- `GET /status` – plain text with frame counter, JPEG offsets, last length, checksum
-- `GET /frame.jpg` – latest captured JPEG frame
+The camera streams continuous MJPEG video on **port 81**:
 
-Three HTTP worker tasks run in parallel, so multiple requests can be processed concurrently.
+- **Endpoint**: `http://<device-ip>:81/`
+- **Format**: `multipart/x-mixed-replace; boundary=frame`
+- **Usage**: Open in browser or use with video players that support MJPEG streams
 
-Example download:
+Example:
+```bash
+# View in browser
+open http://192.168.1.100:81/
+
+# Stream with ffplay
+ffplay http://192.168.1.100:81/
+
+# Stream with VLC
+vlc http://192.168.1.100:81/
 ```
-curl http://<device-ip>/frame.jpg --output frame.jpg
-open frame.jpg
-```
 
-The `/status` endpoint is helpful for confirming new frames without fetching the full image.
+**Note**: The HTTP server on port 80 with other endpoints (like `/frame.jpg`, `/status`) is currently disabled. Only MJPEG streaming on port 81 is active.
 
 ## Debugging Tips
+
+- **DEBUG mode**: Set `DEBUG=1` before building to enable verbose frame diagnostics:
+  ```bash
+  DEBUG=1 cargo run
+  ```
+  This will display:
+  - Hex dump of first 64 bytes of each captured frame
+  - Green tint analysis (approximate percentage)
+  - Detailed frame buffer information
+  
+  Default (`DEBUG=0` or unset) suppresses verbose output for production use.
 
 - Serial logs report capture progress, buffer truncation, and checksum.
 - Capture loop logs `[capture] interval set to <ms>` so you can confirm the active cadence.

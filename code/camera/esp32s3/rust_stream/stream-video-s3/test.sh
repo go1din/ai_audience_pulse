@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-URL="${1:-http://192.168.129.165/frame.jpg}"
+# Allow overriding target IP via S3_IP environment variable; default to 192.168.129.201
+# Optional first argument overrides path portion only (defaults to /stream)
+S3_IP="${S3_IP:-192.168.129.201}"
+PATH_PART="${1:-/stream}"
+[[ "$PATH_PART" =~ ^http?:// ]] && URL="$PATH_PART" || URL="http://$S3_IP$PATH_PART"
 TMP_FILE="$(mktemp -t frameXXXXXX.jpg)"
 trap 'rm -f "$TMP_FILE"' EXIT
 

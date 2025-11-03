@@ -4,7 +4,9 @@
 extern crate alloc;
 
 use alloc::{string::String, vec::Vec};
-use core::{fmt::Write, sync::atomic::{AtomicU32, Ordering}};
+use core::sync::atomic::{AtomicU32, Ordering};
+use esp_backtrace as _; // provide panic handler & backtrace output
+use esp_backtrace as _; // provides the panic handler + prints via UART
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -30,9 +32,7 @@ use esp_println::println;
 use picoserve as ps;
 use ps::response::StatusCode;
 use static_cell::StaticCell;
-
-#[path = "../ov2640_tables.rs"]
-mod ov2640_tables;
+use stream_video_s3::{ov2640_tables, psram_log, frame_log};
 
 use ov2640_tables::{
     OV2640_800X600_JPEG,
@@ -43,7 +43,7 @@ use ov2640_tables::{
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
 const FRAME_SIZE: usize = 64 * 1024;
-#[unsafe(link_section = ".dram2_uninit")]
+// Move FRAME_BUFFER to PSRAM to avoid panic on large allocation
 static mut FRAME_BUFFER: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
 const DESC_COUNT: usize = 32;
 #[unsafe(link_section = ".dram2_uninit")]
@@ -52,11 +52,6 @@ static mut DMA_DESCRIPTORS: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    esp_println::println!("panic: {:?}", info);
-    loop {}
-}
 
 struct FrameStore {
     start: usize,
@@ -77,8 +72,9 @@ impl FrameStore {
 static FRAME_STORE: Mutex<CriticalSectionRawMutex, FrameStore> = Mutex::new(FrameStore::new());
 static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 1_000;
-const CAMERA_JPEG_QUALITY: u8 = 45;
+const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 1000;
+// Lower JPEG quality to reduce frame size and allocation pressure
+const CAMERA_JPEG_QUALITY: u8 = 30;
 const WIFI_SSID: &str = match option_env!("WIFI_SSID") {
     Some(val) => val,
     None => "ESP32_WIFI",
@@ -90,7 +86,7 @@ const WIFI_PASS: &str = match option_env!("WIFI_PASS") {
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
 const FRAME_SAMPLE_LEN: usize = 64;
-
+const DEBUG: Option<&str> = option_env!("DEBUG");
 
 fn capture_interval_millis() -> u64 {
     match option_env!("CAPTURE_INTERVAL_MS") {
@@ -201,26 +197,36 @@ async fn capture_task(
                     let full_len = end - start;
                     let max_len = FRAME_SIZE.saturating_sub(start);
                     let copy_len = full_len.min(max_len);
+                    
+                    // Always calculate checksum (needed for frame change detection in mjpeg_task)
                     let checksum: u32 = buffer[start..start + copy_len]
                         .iter()
                         .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
-                    if copy_len > 0 {
-                        log_frame_sample(buffer, start, copy_len);
+                    
+                    if matches!(DEBUG, Some("1")) {
+                        frame_log::log_frame_sample(buffer, start, copy_len, FRAME_SAMPLE_LEN);
+                        println!(
+                            "✓ Captured JPEG: {} bytes (serving {} bytes, checksum 0x{:08X})",
+                            full_len, copy_len, checksum
+                        );
+                    } else {
+                        println!(
+                            "✓ Captured JPEG: {} bytes (serving {} bytes)",
+                            full_len, copy_len
+                        );
                     }
-                    println!(
-                        "✓ Captured JPEG: {} bytes (serving {} bytes, checksum 0x{:08X})",
-                        full_len, copy_len, checksum
-                    );
+                    
+                    let mut store = FRAME_STORE.lock().await;
+                    store.start = start;
+                    store.len = copy_len;
+                    store.checksum = checksum;
+                    
                     if copy_len < full_len {
                         println!(
                             "⚠ Truncated frame: buffer can store {} of {} bytes",
                             copy_len, full_len
                         );
                     }
-                    let mut store = FRAME_STORE.lock().await;
-                    store.start = start;
-                    store.len = copy_len;
-                    store.checksum = checksum;
                 } else {
                     println!("⚠ No complete JPEG frame detected");
                     let mut store = FRAME_STORE.lock().await;
@@ -238,7 +244,9 @@ async fn capture_task(
     }
 }
 
-async fn http_frame_route() -> impl ps::response::IntoResponse {
+
+// Single frame JPEG response (lowest memory footprint)
+async fn http_stream_route() -> impl ps::response::IntoResponse {
     let store = FRAME_STORE.lock().await;
     let len = store.len;
     let start = store.start;
@@ -247,37 +255,81 @@ async fn http_frame_route() -> impl ps::response::IntoResponse {
 
     if len == 0 {
         let body = Vec::from(FRAME_NOT_READY);
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            ("Content-Type", "text/plain"),
-            body,
-        );
+        return (StatusCode::SERVICE_UNAVAILABLE, ("Content-Type", "text/plain"), body);
     }
-
     let end = start.saturating_add(len).min(FRAME_SIZE);
     let copy_len = end.saturating_sub(start);
     let mut body = Vec::with_capacity(copy_len);
     let src = unsafe { &FRAME_BUFFER[start..end] };
     body.extend_from_slice(src);
-    println!("HTTP /frame.jpg len={} checksum=0x{:08X}", copy_len, checksum);
+    println!("HTTP /stream (single JPEG) len={} checksum=0x{:08X}", copy_len, checksum);
     (StatusCode::OK, ("Content-Type", "image/jpeg"), body)
 }
 
-async fn http_status_route() -> impl ps::response::IntoResponse {
-    let store = FRAME_STORE.lock().await;
-    let count = FRAME_COUNTER.load(Ordering::Relaxed);
-    let mut resp = String::new();
-    let _ = write!(
-        &mut resp,
-        "frames={} start={} last_len={} checksum=0x{:08X}\n",
-        count,
-        store.start,
-        store.len,
-        store.checksum
-    );
-    let mut body = Vec::with_capacity(resp.len());
-    body.extend_from_slice(resp.as_bytes());
-    (StatusCode::OK, ("Content-Type", "text/plain"), body,)
+#[embassy_executor::task]
+async fn mjpeg_task(stack: embassy_net::Stack<'static>) -> ! {
+    use embassy_net::tcp::TcpSocket;
+    use embedded_io_async::Write as _;
+    let mut rx_buf = [0u8; 1024];
+    let mut tx_buf = [0u8; 1024];
+    println!("MJPEG streaming server listening on port 81 (path /mjpeg)");
+    loop {
+        let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
+        if let Err(e) = socket.accept(81).await {
+            println!("mjpeg: accept error {:?}", e);
+            continue;
+        }
+        println!("mjpeg: client connected");
+        // Read minimal request (ignore contents). Attempt to consume until blank line or buffer fills.
+        let mut req_buf = [0u8; 256];
+        let mut total = 0usize;
+        loop {
+            match socket.read(&mut req_buf[total..]).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    total += n;
+                    if total >= 4 && req_buf[..total].windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                    if total == req_buf.len() { break; }
+                }
+            }
+        }
+        // Write HTTP header for multipart stream
+        let header = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nConnection: close\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n\r\n";
+        if let Err(e) = socket.write_all(header).await { println!("mjpeg: header write error {:?}", e); continue; }
+        let mut last_checksum = 0u32;
+        // Stream frames
+        loop {
+            let store = FRAME_STORE.lock().await;
+            let len = store.len;
+            let start = store.start;
+            let checksum = store.checksum;
+            drop(store);
+            if len == 0 || checksum == last_checksum {
+                Timer::after_millis(10).await;
+                continue;
+            }
+            last_checksum = checksum;
+            let end = start.saturating_add(len).min(FRAME_SIZE);
+            let copy_len = end.saturating_sub(start);
+            let frame = unsafe { &FRAME_BUFFER[start..end] };
+            // Build part header
+            let mut hdr = String::new();
+            use core::fmt::Write as _;
+            let _ = write!(hdr, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", copy_len);
+            if socket.write_all(hdr.as_bytes()).await.is_err() { println!("mjpeg: write part header failed"); break; }
+            if socket.write_all(frame).await.is_err() { println!("mjpeg: write frame failed"); break; }
+            if socket.write_all(b"\r\n").await.is_err() { println!("mjpeg: write CRLF failed"); break; }
+            if matches!(DEBUG, Some("1")) {
+                println!("mjpeg: sent frame len={} checksum=0x{:08X}", copy_len, checksum);
+            } else {
+                println!("mjpeg: sent frame len={}", copy_len);
+            }
+            // Allow client to keep up
+            Timer::after_millis(5).await;
+            // Simple backpressure: if buffer seems full we could add delay (not implemented).
+        }
+        println!("mjpeg: client disconnected");
+    }
 }
 
 #[embassy_executor::task(pool_size = HTTP_TASK_POOL_SIZE)]
@@ -288,8 +340,7 @@ async fn http_task(
     use ps::routing::get;
 
     let app = ps::Router::new()
-        .route("/frame.jpg", get(http_frame_route))
-        .route("/status", get(http_status_route))
+        .route("/stream", get(http_stream_route))
         .route("/", get(|| async { "OK\n" }));
 
     let cfg = ps::Config::new(ps::Timeouts {
@@ -321,27 +372,14 @@ async fn http_task(
 async fn main(spawner: Spawner) -> ! {
     let p = esp_hal::init(esp_hal::Config::default());
 
-    esp_alloc::heap_allocator!(size: 120 * 1024);
-    {
-        let (psram_start, psram_size) = esp_hal::psram::psram_raw_parts(&p.PSRAM);
-        if psram_size >= core::mem::size_of::<usize>() * 2 {
-            unsafe {
-                esp_alloc::HEAP.add_region(esp_alloc::HeapRegion::new(
-                    psram_start,
-                    psram_size,
-                    esp_alloc::MemoryCapability::External.into(),
-                ));
-            }
-            println!("PSRAM heap added: {} bytes", psram_size);
-        } else {
-            println!(
-                "PSRAM not detected (size {}), skipping external heap region",
-                psram_size
-            );
-        }
+    // Allocate main heap + attempt to extend with PSRAM
+    esp_alloc::heap_allocator!(size: 72 * 1024);
+    unsafe {
+        psram_log::log_and_init_psram(&p.PSRAM);
     }
 
-    esp_println::logger::init_logger(log::LevelFilter::Info);
+    use log::LevelFilter;
+    esp_println::logger::init_logger(LevelFilter::Info);
     println!("=== ESP32-S3 Camera Wi-Fi Stream ===");
 
     let mut rng = Rng::new(p.RNG);
@@ -371,9 +409,11 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(net_task(runner)).ok();
     spawner.spawn(wifi_task(controller)).ok();
     spawner.spawn(ip_reporter_task(stack)).ok();
-    for worker_id in 0..HTTP_TASK_POOL_SIZE {
-        spawner.spawn(http_task(worker_id, stack)).ok();
-    }
+    // for worker_id in 0..HTTP_TASK_POOL_SIZE {
+    //     spawner.spawn(http_task(worker_id, stack)).ok();
+    // }
+    // Start MJPEG continuous streaming listener on port 81
+    spawner.spawn(mjpeg_task(stack)).ok();
 
     // Camera setup
     let delay = Delay::new();
@@ -434,6 +474,10 @@ async fn main(spawner: Spawner) -> ! {
 
     println!("  Step 4: Re-enabling auto controls (AWB/AGC/AEC)");
     ov2640_re_enable_auto_controls(&mut i2c, addr);
+    delay.delay_millis(10);
+
+    println!("  Step 5: Setting vertical flip (VFLIP)");
+    ov2640_set_vflip(&mut i2c, addr, true);
     delay.delay_millis(10);
 
     let mut sensor_id = [0u8; 2];
@@ -518,44 +562,6 @@ fn find_jpeg_range(buffer: &[u8]) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
-fn log_frame_sample(buffer: &[u8], start: usize, len: usize) {
-    if len == 0 {
-        println!("sample: empty frame");
-        return;
-    }
-    if start >= buffer.len() {
-        println!("sample: invalid range (start={} len={} available={})", start, len, buffer.len());
-        return;
-    }
-
-    let available = buffer.len() - start;
-    let sample_len = FRAME_SAMPLE_LEN.min(len).min(available);
-    if sample_len == 0 {
-        println!("sample: no bytes available for sampling");
-        return;
-    }
-
-    let sample = &buffer[start..start + sample_len];
-    let non_zero = sample.iter().filter(|&&b| b != 0).count();
-    let approx_green = (non_zero as f32 / sample_len as f32) * 100.0;
-    println!(
-        "sample[0..{}] approx_green={:.1}% (non-zero {}/{})",
-        sample_len.saturating_sub(1),
-        approx_green,
-        non_zero,
-        sample_len
-    );
-
-    let mut line = String::new();
-    for chunk in sample.chunks(16) {
-        line.clear();
-        for byte in chunk {
-            let _ = write!(line, "{:02X} ", byte);
-        }
-        println!("{}", line);
-    }
-}
-
 fn ov2640_reset<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
     let _ = i2c.write(addr, &[0xff, 0x01]);
     let _ = i2c.write(addr, &[0x12, 0x80]);
@@ -618,4 +624,19 @@ fn ov2640_set_svga_jpeg<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, qualit
     write_table(i2c, addr, OV2640_800X600_JPEG);
     let _ = i2c.write(addr, &[0xFF, 0x00]);
     let _ = i2c.write(addr, &[0x44, quality]);
+}
+
+fn ov2640_set_vflip<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, enable: bool) {
+    // Switch to sensor bank
+    let _ = i2c.write(addr, &[0xFF, 0x01]);
+    // Read current REG04 register value
+    let mut reg04 = [0u8];
+    let _ = i2c.write_read(addr, &[0x04], &mut reg04);
+    // Bit 6 = VFLIP, Bit 0 = UV swap (must toggle with VFLIP to maintain colors)
+    let new_val = if enable {
+        (reg04[0] | 0x40) ^ 0x01  // Set bit 6 for VFLIP, toggle bit 0 for UV order
+    } else {
+        reg04[0] & !0x40  // Clear bit 6
+    };
+    let _ = i2c.write(addr, &[0x04, new_val]);
 }
