@@ -26,6 +26,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
+use heapless::String as HeaplessString;
 use static_cell::StaticCell;
 use stream_video_s3::{ov2640_tables, psram_log};
 
@@ -143,7 +144,8 @@ async fn mjpeg_task(
     use embassy_net::tcp::TcpSocket;
     use embedded_io_async::Write as _;
     let mut rx_buf = [0u8; 1024];
-    let mut tx_buf = [0u8; 1024];
+    // let mut tx_buf = [0u8; 8024];
+    let mut tx_buf = [0u8; 16384];
     println!("MJPEG streaming server listening on port 80 (path /)");
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
@@ -486,13 +488,17 @@ where
     };
 
     let copy_len = frame.len();
-    let mut hdr = String::new();
     use core::fmt::Write as _;
-    let _ = write!(
-        hdr,
+    let mut hdr: HeaplessString<96> = HeaplessString::new();
+    if write!(
+        &mut hdr,
         "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
         copy_len
-    );
+    )
+    .is_err()
+    {
+        return Err(());
+    }
 
     socket.write_all(hdr.as_bytes()).await.map_err(|_| ())?;
     socket.write_all(frame).await.map_err(|_| ())?;
