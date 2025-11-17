@@ -26,7 +26,6 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use picoserve as ps;
 use static_cell::StaticCell;
 use stream_video_s3::{ov2640_tables, psram_log};
 
@@ -38,19 +37,26 @@ use ov2640_tables::{
 };
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
-const FRAME_SIZE: usize = 64 * 1024;
-// Move FRAME_BUFFER to PSRAM to avoid panic on large allocation
-static mut FRAME_BUFFER: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
+const FRAME_SIZE: usize = 32 * 1024;
+
+// Two frame buffers for simple ping-pong (double-buffered) capture,
+// sized for typical VGA JPEG frames.
+static mut FRAME_BUFFER0: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
+static mut FRAME_BUFFER1: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
+
 const DESC_COUNT: usize = 32;
+
 #[unsafe(link_section = ".dram2_uninit")]
-static mut DMA_DESCRIPTORS: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
+static mut DMA_DESCRIPTORS0: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
+    [esp_hal::dma::DmaDescriptor::EMPTY; DESC_COUNT];
+#[unsafe(link_section = ".dram2_uninit")]
+static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
     [esp_hal::dma::DmaDescriptor::EMPTY; DESC_COUNT];
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-// Capture as fast as possible by default; the loop
-// itself is paced by the sensor/DMA and MJPEG sender.
+// Capture as fast as possible; the loop is paced by sensor/DMA + Wi-Fi.
 const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 0;
 // Lower JPEG quality to reduce frame size and allocation pressure
 const CAMERA_JPEG_QUALITY: u8 = 30;
@@ -59,17 +65,6 @@ const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(30);
 const FRAME_SAMPLE_LEN: usize = 64;
-
-fn capture_interval_millis() -> u64 {
-    match option_env!("CAPTURE_INTERVAL_MS") {
-        Some(val) => val
-            .parse::<u64>()
-            .ok()
-            .filter(|ms| *ms > 0)
-            .unwrap_or(DEFAULT_CAPTURE_INTERVAL_MS),
-        None => DEFAULT_CAPTURE_INTERVAL_MS,
-    }
-}
 
 #[embassy_executor::task]
 async fn net_task(
@@ -146,7 +141,8 @@ async fn wifi_task(
 async fn mjpeg_task(
     stack: embassy_net::Stack<'static>,
     mut camera: Camera<'static>,
-    mut rx_buffer: DmaRxBuf,
+    mut rx0: DmaRxBuf,
+    mut rx1: DmaRxBuf,
 ) -> ! {
     use embassy_net::tcp::TcpSocket;
     use embedded_io_async::Write as _;
@@ -179,65 +175,100 @@ async fn mjpeg_task(
             println!("mjpeg: header write error {:?}", e);
             continue;
         }
-        // Stream frames: capture + send in a tight loop, similar to
-        // the Arduino esp_camera_fb_get() pattern.
-        loop {
-            // Start a DMA capture into the shared FRAME_BUFFER.
-            let transfer = match camera.receive(rx_buffer) {
-                Ok(t) => t,
-                Err((e, cam, buf)) => {
-                    println!("mjpeg: failed to start transfer: {:?}", e);
-                    camera = cam;
-                    rx_buffer = buf;
+        // First frame: capture into buffer 0 and wait so we have
+        // something to send before starting the ping-pong loop.
+        match camera.receive(rx0) {
+            Ok(t) => {
+                let (result, cam, buf) = t.wait();
+                camera = cam;
+                rx0 = buf;
+                if let Err(err) = result {
+                    println!("mjpeg: initial DMA error during frame capture: {:?}", err);
                     continue;
                 }
-            };
-
-            let (result, cam, buf) = transfer.wait();
-            camera = cam;
-            rx_buffer = buf;
-
-            if let Err(err) = result {
-                println!("mjpeg: DMA error during frame capture: {:?}", err);
+            }
+            Err((e, cam, buf)) => {
+                println!("mjpeg: failed to start initial transfer: {:?}", e);
+                camera = cam;
+                rx0 = buf;
                 continue;
             }
+        }
 
-            // Locate JPEG start/end inside the DMA buffer.
-            let buffer = unsafe { &FRAME_BUFFER[..] };
-            let (start, end) = match find_jpeg_range(buffer) {
-                Some(range) => range,
-                None => {
-                    println!("mjpeg: no complete JPEG frame detected");
-                    continue;
+        // Stream frames: double-buffered ping-pong between FRAME_BUFFER0 and FRAME_BUFFER1,
+        // similar to Arduino's fb_count=2 / CAMERA_GRAB_LATEST behavior.
+        let mut current_is_buf0 = true;
+        loop {
+            if current_is_buf0 {
+                // Start capture into buffer 1 (rx1), stream from buffer 0.
+                let transfer = match camera.receive(rx1) {
+                    Ok(t) => t,
+                    Err((e, cam, buf)) => {
+                        println!("mjpeg: failed to start transfer (buf1): {:?}", e);
+                        camera = cam;
+                        rx1 = buf;
+                        continue;
+                    }
+                };
+
+                // Stream the completed frame from FRAME_BUFFER0.
+                let buffer = unsafe { &FRAME_BUFFER0[..] };
+                if stream_jpeg_frame(&mut socket, buffer).await.is_err() {
+                    // On any socket error, drop the connection.
+                    let (result, cam, buf) = transfer.wait();
+                    camera = cam;
+                    rx1 = buf;
+                    if let Err(err) = result {
+                        println!("mjpeg: DMA error during frame capture (buf1): {:?}", err);
+                    }
+                    break;
                 }
-            };
 
-            let full_len = end - start;
-            let max_len = FRAME_SIZE.saturating_sub(start);
-            let copy_len = full_len.min(max_len);
-            let frame = unsafe { &FRAME_BUFFER[start..start + copy_len] };
+                // Wait for capture into buffer 1 to complete.
+                let (result, cam, buf) = transfer.wait();
+                camera = cam;
+                rx1 = buf;
+                if let Err(err) = result {
+                    println!("mjpeg: DMA error during frame capture (buf1): {:?}", err);
+                    break;
+                }
 
-            // Build part header
-            let mut hdr = String::new();
-            use core::fmt::Write as _;
-            let _ = write!(
-                hdr,
-                "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-                copy_len
-            );
-            if socket.write_all(hdr.as_bytes()).await.is_err() {
-                println!("mjpeg: write part header failed");
-                break;
+                current_is_buf0 = false;
+            } else {
+                // Start capture into buffer 0 (rx0), stream from buffer 1.
+                let transfer = match camera.receive(rx0) {
+                    Ok(t) => t,
+                    Err((e, cam, buf)) => {
+                        println!("mjpeg: failed to start transfer (buf0): {:?}", e);
+                        camera = cam;
+                        rx0 = buf;
+                        continue;
+                    }
+                };
+
+                // Stream the completed frame from FRAME_BUFFER1.
+                let buffer = unsafe { &FRAME_BUFFER1[..] };
+                if stream_jpeg_frame(&mut socket, buffer).await.is_err() {
+                    let (result, cam, buf) = transfer.wait();
+                    camera = cam;
+                    rx0 = buf;
+                    if let Err(err) = result {
+                        println!("mjpeg: DMA error during frame capture (buf0): {:?}", err);
+                    }
+                    break;
+                }
+
+                // Wait for capture into buffer 0 to complete.
+                let (result, cam, buf) = transfer.wait();
+                camera = cam;
+                rx0 = buf;
+                if let Err(err) = result {
+                    println!("mjpeg: DMA error during frame capture (buf0): {:?}", err);
+                    break;
+                }
+
+                current_is_buf0 = true;
             }
-            if socket.write_all(frame).await.is_err() {
-                println!("mjpeg: write frame failed");
-                break;
-            }
-            if socket.write_all(b"\r\n").await.is_err() {
-                println!("mjpeg: write CRLF failed");
-                break;
-            }
-            println!("mjpeg: sent frame len={}", copy_len);
         }
         println!("mjpeg: client disconnected");
     }
@@ -388,16 +419,25 @@ async fn main(spawner: Spawner) -> ! {
         .with_data6(p.GPIO11)
         .with_data7(p.GPIO48);
 
-    let rx_buffer = unsafe {
-        DmaRxBuf::new(
-            &mut *core::ptr::addr_of_mut!(DMA_DESCRIPTORS),
-            &mut *core::ptr::addr_of_mut!(FRAME_BUFFER),
+    // Two DMA RX buffers, each backed by its own descriptor array and frame buffer,
+    // to mirror Arduino's fb_count = 2 double-buffered behavior.
+    let (rx0, rx1) = unsafe {
+        let rx0 = DmaRxBuf::new(
+            &mut *core::ptr::addr_of_mut!(DMA_DESCRIPTORS0),
+            &mut *core::ptr::addr_of_mut!(FRAME_BUFFER0),
         )
-        .unwrap()
+        .unwrap();
+        let rx1 = DmaRxBuf::new(
+            &mut *core::ptr::addr_of_mut!(DMA_DESCRIPTORS1),
+            &mut *core::ptr::addr_of_mut!(FRAME_BUFFER1),
+        )
+        .unwrap();
+        (rx0, rx1)
     };
 
-    // Single HTTP MJPEG task that both captures frames and streams them.
-    spawner.spawn(mjpeg_task(stack, camera, rx_buffer)).ok();
+    // Single HTTP MJPEG task that both captures frames and streams them,
+    // using rx0/rx1 as a ping-pong (double-buffered) pipeline.
+    spawner.spawn(mjpeg_task(stack, camera, rx0, rx1)).ok();
 
     // Nothing else to do in main; all work happens in Embassy tasks.
     loop {
@@ -427,6 +467,42 @@ fn find_jpeg_range(buffer: &[u8]) -> Option<(usize, usize)> {
     let start = find_jpeg_start(buffer, 0)?;
     let end = find_jpeg_end(buffer, start + 2)?;
     Some((start, end))
+}
+
+fn jpeg_slice_from<'a>(buffer: &'a [u8]) -> Option<&'a [u8]> {
+    let (start, end) = find_jpeg_range(buffer)?;
+    let full_len = end - start;
+    let max_len = FRAME_SIZE.saturating_sub(start);
+    let copy_len = full_len.min(max_len);
+    Some(&buffer[start..start + copy_len])
+}
+
+async fn stream_jpeg_frame<S>(socket: &mut S, buffer: &[u8]) -> Result<(), ()>
+where
+    S: embedded_io_async::Write,
+{
+    let frame = match jpeg_slice_from(buffer) {
+        Some(f) => f,
+        None => {
+            println!("mjpeg: no complete JPEG frame detected");
+            return Ok(());
+        }
+    };
+
+    let copy_len = frame.len();
+    let mut hdr = String::new();
+    use core::fmt::Write as _;
+    let _ = write!(
+        hdr,
+        "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+        copy_len
+    );
+
+    socket.write_all(hdr.as_bytes()).await.map_err(|_| ())?;
+    socket.write_all(frame).await.map_err(|_| ())?;
+    socket.write_all(b"\r\n").await.map_err(|_| ())?;
+
+    Ok(())
 }
 
 fn ov2640_reset<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
