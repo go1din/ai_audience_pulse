@@ -75,14 +75,9 @@ static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
 const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 1000;
 // Lower JPEG quality to reduce frame size and allocation pressure
 const CAMERA_JPEG_QUALITY: u8 = 30;
-const WIFI_SSID: &str = match option_env!("WIFI_SSID") {
-    Some(val) => val,
-    None => "ESP32_WIFI",
-};
-const WIFI_PASS: &str = match option_env!("WIFI_PASS") {
-    Some(val) => val,
-    None => "password",
-};
+// Load Wi-Fi credentials generated during build
+const WIFI_SSID: &str = env!("WIFI_SSID");
+const WIFI_PASS: &str = env!("WIFI_PASS");
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
 const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
 const FRAME_SAMPLE_LEN: usize = 64;
@@ -157,7 +152,8 @@ async fn wifi_task(mut controller: esp_wifi::wifi::WifiController<'static>) -> !
 async fn ip_reporter_task(stack: embassy_net::Stack<'static>) {
     stack.wait_config_up().await;
     if let Some(v4) = stack.config_v4() {
-        esp_println::println!("Wi-Fi connected with IPv4: {:?}", v4);
+        let ip_addr = v4.address.address();
+        esp_println::println!("Wi-Fi connected with IPv4: {}", ip_addr);
         esp_println::println!("🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄");
     }
 }
