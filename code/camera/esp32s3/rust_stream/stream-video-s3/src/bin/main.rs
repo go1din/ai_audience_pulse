@@ -449,7 +449,7 @@ async fn main(spawner: Spawner) -> ! {
         .configure(timer::config::Config {
             duty: timer::config::Duty::Duty1Bit,
             clock_source: timer::LSClockSource::APBClk,
-            frequency: esp_hal::time::Rate::from_mhz(20),
+            frequency: esp_hal::time::Rate::from_mhz(24),
         })
         .unwrap();
     let mut channel0 = ledc.channel(channel::Number::Channel0, p.GPIO10);
@@ -461,7 +461,7 @@ async fn main(spawner: Spawner) -> ! {
         })
         .unwrap();
 
-    println!("LEDC configured: 20MHz XCLK on GPIO10");
+    println!("LEDC configured: 24MHz XCLK on GPIO10");
 
     let addr = 0x30;
     println!("Performing OV2640 initialization sequence (ESP-IDF style)...");
@@ -475,10 +475,6 @@ async fn main(spawner: Spawner) -> ! {
 
     println!("  Step 2a: Forcing output selector (YUV422 path)");
     ov2640_force_output_selector(&mut i2c, addr);
-    delay.delay_millis(10);
-
-    println!("  Step 2b: Fixing color matrix (neutral matrix, disable effects)");
-    ov2640_fix_color_matrix(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 3: Configuring JPEG SVGA mode (quality={})", CAMERA_JPEG_QUALITY);
@@ -604,25 +600,6 @@ fn ov2640_force_output_selector<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8
     let _ = i2c.write(addr, &[0xD7, 0x03]);   // auto features enabled (as in esp32-camera)
 }
 
-fn ov2640_fix_color_matrix<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    // Load a neutral color matrix + no effects (fixes green bias)
-    // DSP bank
-    let _ = i2c.write(addr, &[0xFF, 0x00]);
-    let _ = i2c.write(addr, &[0x7C, 0x00]);
-    let _ = i2c.write(addr, &[0x7D, 0x00]);        // SDE off
-    let _ = i2c.write(addr, &[0x7C, 0x03]);
-    let _ = i2c.write(addr, &[0x7D, 0x40]);
-    let _ = i2c.write(addr, &[0x7D, 0x40]); // mid saturation
-    // CMX1..6 + sign
-    let _ = i2c.write(addr, &[0x4F, 0xCA]);
-    let _ = i2c.write(addr, &[0x50, 0xA8]);
-    let _ = i2c.write(addr, &[0x51, 0x00]);
-    let _ = i2c.write(addr, &[0x52, 0x28]);
-    let _ = i2c.write(addr, &[0x53, 0x70]);
-    let _ = i2c.write(addr, &[0x54, 0x99]);
-    let _ = i2c.write(addr, &[0x58, 0x1A]);
-}
-
 fn ov2640_re_enable_auto_controls<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
     // Re-enable auto white balance / exposure / gain after the tables
     // Sensor bank
@@ -640,16 +617,17 @@ fn ov2640_set_svga_jpeg<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, qualit
 }
 
 fn ov2640_set_vflip<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, enable: bool) {
-    // Switch to sensor bank
+    // Switch to sensor bank and mirror Arduino/esp32-camera behaviour:
+    // enable VFLIP and VREF bits without touching UV order.
     let _ = i2c.write(addr, &[0xFF, 0x01]);
-    // Read current REG04 register value
     let mut reg04 = [0u8];
     let _ = i2c.write_read(addr, &[0x04], &mut reg04);
-    // Bit 6 = VFLIP, Bit 0 = UV swap (must toggle with VFLIP to maintain colors)
-    let new_val = if enable {
-        (reg04[0] | 0x40) ^ 0x01  // Set bit 6 for VFLIP, toggle bit 0 for UV order
+    let mut new_val = reg04[0];
+    if enable {
+        // Set VREF_EN (0x10) and VFLIP_IMG (0x40)
+        new_val |= 0x50;
     } else {
-        reg04[0] & !0x40  // Clear bit 6
-    };
+        new_val &= !0x50;
+    }
     let _ = i2c.write(addr, &[0x04, new_val]);
 }
