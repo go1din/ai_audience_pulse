@@ -3,14 +3,11 @@
 
 extern crate alloc;
 
-use alloc::{string::String, vec::Vec};
-use core::sync::atomic::{AtomicU32, Ordering};
+use alloc::string::String;
 use esp_backtrace as _; // provide panic handler & backtrace output
 use esp_backtrace as _; // provides the panic handler + prints via UART
 
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Timer};
 use esp_hal::{
     delay::Delay,
@@ -30,9 +27,8 @@ use esp_hal::{
 };
 use esp_println::println;
 use picoserve as ps;
-use ps::response::StatusCode;
 use static_cell::StaticCell;
-use stream_video_s3::{ov2640_tables, psram_log, frame_log};
+use stream_video_s3::{ov2640_tables, psram_log};
 
 use ov2640_tables::{
     OV2640_800X600_JPEG,
@@ -53,35 +49,16 @@ static mut DMA_DESCRIPTORS: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-struct FrameStore {
-    start: usize,
-    len: usize,
-    checksum: u32,
-}
-
-impl FrameStore {
-    const fn new() -> Self {
-        Self {
-            start: 0,
-            len: 0,
-            checksum: 0,
-        }
-    }
-}
-
-static FRAME_STORE: Mutex<CriticalSectionRawMutex, FrameStore> = Mutex::new(FrameStore::new());
-static FRAME_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 1000;
+// Capture as fast as possible by default; the loop
+// itself is paced by the sensor/DMA and MJPEG sender.
+const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 0;
 // Lower JPEG quality to reduce frame size and allocation pressure
 const CAMERA_JPEG_QUALITY: u8 = 30;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(30);
-const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
 const FRAME_SAMPLE_LEN: usize = 64;
-const DEBUG: Option<&str> = option_env!("DEBUG");
 
 fn capture_interval_millis() -> u64 {
     match option_env!("CAPTURE_INTERVAL_MS") {
@@ -166,126 +143,16 @@ async fn wifi_task(
 }
 
 #[embassy_executor::task]
-async fn ip_reporter_task(stack: embassy_net::Stack<'static>) {
-    stack.wait_config_up().await;
-    if let Some(v4) = stack.config_v4() {
-        let ip_addr = v4.address.address();
-        esp_println::println!("Wi-Fi connected with IPv4: {}", ip_addr);
-        esp_println::println!("🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄🚀🐄");
-    }
-}
-
-#[embassy_executor::task]
-async fn capture_task(
+async fn mjpeg_task(
+    stack: embassy_net::Stack<'static>,
     mut camera: Camera<'static>,
     mut rx_buffer: DmaRxBuf,
 ) -> ! {
-    let interval_ms = capture_interval_millis();
-    println!("[capture] interval set to {} ms", interval_ms);
-
-    loop {
-        FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
-        println!("[Frame {}] Starting capture...", FRAME_COUNTER.load(Ordering::Relaxed));
-
-        let transfer = match camera.receive(rx_buffer) {
-            Ok(t) => t,
-            Err((e, cam, buf)) => {
-                println!("Failed to start transfer: {:?}", e);
-                camera = cam;
-                rx_buffer = buf;
-                Timer::after_millis(interval_ms).await;
-                continue;
-            }
-        };
-
-        println!("Waiting for frame data...");
-        let (result, cam, buf) = transfer.wait();
-        camera = cam;
-        rx_buffer = buf;
-
-        match result {
-            Ok(()) => {
-                let buffer = unsafe { &FRAME_BUFFER[..] };
-                if let Some((start, end)) = find_jpeg_range(buffer) {
-                    let full_len = end - start;
-                    let max_len = FRAME_SIZE.saturating_sub(start);
-                    let copy_len = full_len.min(max_len);
-                    
-                    // Always calculate checksum (needed for frame change detection in mjpeg_task)
-                    let checksum: u32 = buffer[start..start + copy_len]
-                        .iter()
-                        .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
-                    
-                    if matches!(DEBUG, Some("1")) {
-                        frame_log::log_frame_sample(buffer, start, copy_len, FRAME_SAMPLE_LEN);
-                        println!(
-                            "✓ Captured JPEG: {} bytes (serving {} bytes, checksum 0x{:08X})",
-                            full_len, copy_len, checksum
-                        );
-                    } else {
-                        println!(
-                            "✓ Captured JPEG: {} bytes (serving {} bytes)",
-                            full_len, copy_len
-                        );
-                    }
-                    
-                    let mut store = FRAME_STORE.lock().await;
-                    store.start = start;
-                    store.len = copy_len;
-                    store.checksum = checksum;
-                    
-                    if copy_len < full_len {
-                        println!(
-                            "⚠ Truncated frame: buffer can store {} of {} bytes",
-                            copy_len, full_len
-                        );
-                    }
-                } else {
-                    println!("⚠ No complete JPEG frame detected");
-                    let mut store = FRAME_STORE.lock().await;
-                    store.len = 0;
-                    store.start = 0;
-                    store.checksum = 0;
-                }
-            }
-            Err(e) => {
-                println!("DMA error: {:?}", e);
-            }
-        }
-
-        Timer::after_millis(interval_ms).await;
-    }
-}
-
-
-// Single frame JPEG response (lowest memory footprint)
-async fn http_stream_route() -> impl ps::response::IntoResponse {
-    let store = FRAME_STORE.lock().await;
-    let len = store.len;
-    let start = store.start;
-    let checksum = store.checksum;
-    drop(store);
-
-    if len == 0 {
-        let body = Vec::from(FRAME_NOT_READY);
-        return (StatusCode::SERVICE_UNAVAILABLE, ("Content-Type", "text/plain"), body);
-    }
-    let end = start.saturating_add(len).min(FRAME_SIZE);
-    let copy_len = end.saturating_sub(start);
-    let mut body = Vec::with_capacity(copy_len);
-    let src = unsafe { &FRAME_BUFFER[start..end] };
-    body.extend_from_slice(src);
-    println!("HTTP /stream (single JPEG) len={} checksum=0x{:08X}", copy_len, checksum);
-    (StatusCode::OK, ("Content-Type", "image/jpeg"), body)
-}
-
-#[embassy_executor::task]
-async fn mjpeg_task(stack: embassy_net::Stack<'static>) -> ! {
     use embassy_net::tcp::TcpSocket;
     use embedded_io_async::Write as _;
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 1024];
-    println!("MJPEG streaming server listening on port 80 (path /mjpeg)");
+    println!("MJPEG streaming server listening on port 80 (path /)");
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
         if let Err(e) = socket.accept(80).await {
@@ -308,77 +175,72 @@ async fn mjpeg_task(stack: embassy_net::Stack<'static>) -> ! {
         }
         // Write HTTP header for multipart stream
         let header = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nConnection: close\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n\r\n";
-        if let Err(e) = socket.write_all(header).await { println!("mjpeg: header write error {:?}", e); continue; }
-        let mut last_checksum = 0u32;
-        // Stream frames
+        if let Err(e) = socket.write_all(header).await {
+            println!("mjpeg: header write error {:?}", e);
+            continue;
+        }
+        // Stream frames: capture + send in a tight loop, similar to
+        // the Arduino esp_camera_fb_get() pattern.
         loop {
-            let store = FRAME_STORE.lock().await;
-            let len = store.len;
-            let start = store.start;
-            let checksum = store.checksum;
-            drop(store);
-            if len == 0 || checksum == last_checksum {
-                Timer::after_millis(10).await;
+            // Start a DMA capture into the shared FRAME_BUFFER.
+            let transfer = match camera.receive(rx_buffer) {
+                Ok(t) => t,
+                Err((e, cam, buf)) => {
+                    println!("mjpeg: failed to start transfer: {:?}", e);
+                    camera = cam;
+                    rx_buffer = buf;
+                    continue;
+                }
+            };
+
+            let (result, cam, buf) = transfer.wait();
+            camera = cam;
+            rx_buffer = buf;
+
+            if let Err(err) = result {
+                println!("mjpeg: DMA error during frame capture: {:?}", err);
                 continue;
             }
-            last_checksum = checksum;
-            let end = start.saturating_add(len).min(FRAME_SIZE);
-            let copy_len = end.saturating_sub(start);
-            let frame = unsafe { &FRAME_BUFFER[start..end] };
+
+            // Locate JPEG start/end inside the DMA buffer.
+            let buffer = unsafe { &FRAME_BUFFER[..] };
+            let (start, end) = match find_jpeg_range(buffer) {
+                Some(range) => range,
+                None => {
+                    println!("mjpeg: no complete JPEG frame detected");
+                    continue;
+                }
+            };
+
+            let full_len = end - start;
+            let max_len = FRAME_SIZE.saturating_sub(start);
+            let copy_len = full_len.min(max_len);
+            let frame = unsafe { &FRAME_BUFFER[start..start + copy_len] };
+
             // Build part header
             let mut hdr = String::new();
             use core::fmt::Write as _;
-            let _ = write!(hdr, "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", copy_len);
-            if socket.write_all(hdr.as_bytes()).await.is_err() { println!("mjpeg: write part header failed"); break; }
-            if socket.write_all(frame).await.is_err() { println!("mjpeg: write frame failed"); break; }
-            if socket.write_all(b"\r\n").await.is_err() { println!("mjpeg: write CRLF failed"); break; }
-            if matches!(DEBUG, Some("1")) {
-                println!("mjpeg: sent frame len={} checksum=0x{:08X}", copy_len, checksum);
-            } else {
-                println!("mjpeg: sent frame len={}", copy_len);
+            let _ = write!(
+                hdr,
+                "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+                copy_len
+            );
+            if socket.write_all(hdr.as_bytes()).await.is_err() {
+                println!("mjpeg: write part header failed");
+                break;
             }
-            // Allow client to keep up
-            Timer::after_millis(5).await;
-            // Simple backpressure: if buffer seems full we could add delay (not implemented).
+            if socket.write_all(frame).await.is_err() {
+                println!("mjpeg: write frame failed");
+                break;
+            }
+            if socket.write_all(b"\r\n").await.is_err() {
+                println!("mjpeg: write CRLF failed");
+                break;
+            }
+            println!("mjpeg: sent frame len={}", copy_len);
         }
         println!("mjpeg: client disconnected");
     }
-}
-
-#[embassy_executor::task(pool_size = HTTP_TASK_POOL_SIZE)]
-async fn http_task(
-    worker_id: usize,
-    stack: embassy_net::Stack<'static>,
-) -> ! {
-    use ps::routing::get;
-
-    let app = ps::Router::new()
-        .route("/stream", get(http_stream_route))
-        .route("/", get(|| async { "OK\n" }));
-
-    let cfg = ps::Config::new(ps::Timeouts {
-        start_read_request: Some(TIMEOUT),
-        persistent_start_read_request: Some(TIMEOUT),
-        read_request: Some(TIMEOUT),
-        write: Some(TIMEOUT),
-    });
-
-    let mut tcp_rx = [0u8; 2048];
-    let mut tcp_tx = [0u8; 2048];
-    let mut http_buf = [0u8; 2048];
-
-    println!("HTTP server listening on port 80 (worker #{})", worker_id);
-    ps::listen_and_serve(
-        "camera-http",
-        &app,
-        &cfg,
-        stack,
-        80,
-        &mut tcp_rx,
-        &mut tcp_tx,
-        &mut http_buf,
-    )
-    .await
 }
 
 #[esp_hal_embassy::main]
@@ -421,12 +283,6 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(net_task(runner)).ok();
     spawner.spawn(wifi_task(controller, stack)).ok();
-    spawner.spawn(ip_reporter_task(stack)).ok();
-    // for worker_id in 0..HTTP_TASK_POOL_SIZE {
-    //     spawner.spawn(http_task(worker_id, stack)).ok();
-    // }
-    // Start MJPEG continuous streaming listener on port 80
-    spawner.spawn(mjpeg_task(stack)).ok();
 
     // Camera setup
     let delay = Delay::new();
@@ -540,8 +396,10 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap()
     };
 
-    spawner.spawn(capture_task(camera, rx_buffer)).ok();
+    // Single HTTP MJPEG task that both captures frames and streams them.
+    spawner.spawn(mjpeg_task(stack, camera, rx_buffer)).ok();
 
+    // Nothing else to do in main; all work happens in Embassy tasks.
     loop {
         Timer::after_millis(1000).await;
     }
