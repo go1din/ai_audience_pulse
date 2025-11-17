@@ -37,10 +37,9 @@ use ov2640_tables::{
 };
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
-const FRAME_SIZE: usize = 32 * 1024;
+const FRAME_SIZE: usize = 28 * 1024;
 
-// Two frame buffers for simple ping-pong (double-buffered) capture,
-// sized for typical VGA JPEG frames.
+// Two frame buffers for simple ping-pong (double-buffered) capture.
 static mut FRAME_BUFFER0: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
 static mut FRAME_BUFFER1: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
 
@@ -56,15 +55,12 @@ static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-// Capture as fast as possible; the loop is paced by sensor/DMA + Wi-Fi.
-const DEFAULT_CAPTURE_INTERVAL_MS: u64 = 0;
 // Lower JPEG quality to reduce frame size and allocation pressure
-const CAMERA_JPEG_QUALITY: u8 = 30;
+const CAMERA_JPEG_QUALITY: u8 = 20;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
 const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(30);
-const FRAME_SAMPLE_LEN: usize = 64;
 
 #[embassy_executor::task]
 async fn net_task(
