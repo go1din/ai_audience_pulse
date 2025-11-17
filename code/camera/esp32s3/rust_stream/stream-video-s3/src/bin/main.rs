@@ -11,7 +11,7 @@ use esp_backtrace as _; // provides the panic handler + prints via UART
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::Timer;
+use embassy_time::{with_timeout, Timer};
 use esp_hal::{
     delay::Delay,
     dma::DmaRxBuf,
@@ -78,7 +78,7 @@ const CAMERA_JPEG_QUALITY: u8 = 30;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
-const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(5);
+const TIMEOUT: embassy_time::Duration = embassy_time::Duration::from_secs(30);
 const FRAME_NOT_READY: &[u8] = b"frame not ready\n";
 const FRAME_SAMPLE_LEN: usize = 64;
 const DEBUG: Option<&str> = option_env!("DEBUG");
@@ -102,7 +102,10 @@ async fn net_task(
 }
 
 #[embassy_executor::task]
-async fn wifi_task(mut controller: esp_wifi::wifi::WifiController<'static>) -> ! {
+async fn wifi_task(
+    mut controller: esp_wifi::wifi::WifiController<'static>,
+    stack: embassy_net::Stack<'static>,
+) -> ! {
     use esp_wifi::wifi::{ClientConfiguration, Configuration as WifiConfiguration, Protocol, WifiEvent};
     use esp_println::println;
 
@@ -137,8 +140,22 @@ async fn wifi_task(mut controller: esp_wifi::wifi::WifiController<'static>) -> !
         match controller.connect() {
             Ok(()) => {
                 println!("[wifi] connected");
+                match with_timeout(TIMEOUT, stack.wait_config_up()).await {
+                    Ok(()) => {
+                        if let Some(v4) = stack.config_v4() {
+                            println!("[wifi] got IPv4 address: {}", v4.address.address());
+                        } else {
+                            println!("[wifi] connected but DHCP did not provide an IPv4 address");
+                        }
+                    }
+                    Err(_) => println!(
+                        "[wifi] connected but timed out waiting for DHCP ({}s)",
+                        TIMEOUT.as_secs()
+                    ),
+                }
                 controller.wait_for_event(WifiEvent::StaDisconnected).await;
                 println!("[wifi] disconnected; retrying");
+                let _ = with_timeout(TIMEOUT, stack.wait_config_down()).await;
             }
             Err(e) => {
                 println!("[wifi] connect error: {:?}", e);
@@ -268,10 +285,10 @@ async fn mjpeg_task(stack: embassy_net::Stack<'static>) -> ! {
     use embedded_io_async::Write as _;
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 1024];
-    println!("MJPEG streaming server listening on port 81 (path /mjpeg)");
+    println!("MJPEG streaming server listening on port 80 (path /mjpeg)");
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
-        if let Err(e) = socket.accept(81).await {
+        if let Err(e) = socket.accept(80).await {
             println!("mjpeg: accept error {:?}", e);
             continue;
         }
@@ -403,12 +420,12 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     spawner.spawn(net_task(runner)).ok();
-    spawner.spawn(wifi_task(controller)).ok();
+    spawner.spawn(wifi_task(controller, stack)).ok();
     spawner.spawn(ip_reporter_task(stack)).ok();
     // for worker_id in 0..HTTP_TASK_POOL_SIZE {
     //     spawner.spawn(http_task(worker_id, stack)).ok();
     // }
-    // Start MJPEG continuous streaming listener on port 81
+    // Start MJPEG continuous streaming listener on port 80
     spawner.spawn(mjpeg_task(stack)).ok();
 
     // Camera setup
