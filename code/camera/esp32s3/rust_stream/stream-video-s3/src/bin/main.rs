@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use esp_backtrace as _; // provide panic handler & backtrace output
 use esp_backtrace as _; // provides the panic handler + prints via UART
 
@@ -38,7 +37,7 @@ use ov2640_tables::{
 };
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
-const FRAME_SIZE: usize = 28 * 1024;
+const FRAME_SIZE: usize = 40 * 1024;
 
 // Two frame buffers for simple ping-pong (double-buffered) capture.
 static mut FRAME_BUFFER0: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
@@ -56,8 +55,7 @@ static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-// Lower JPEG quality to reduce frame size and allocation pressure
-const CAMERA_JPEG_QUALITY: u8 = 20;
+const CAMERA_JPEG_QUALITY: u8 = 30;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
