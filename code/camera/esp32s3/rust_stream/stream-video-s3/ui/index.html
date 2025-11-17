@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32-S3 Camera Stream</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0f1116;
+            --panel: #171a23;
+            --accent: #4cc9f0;
+            --muted: #a0a8c3;
+            font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(circle at top, rgba(76,201,240,0.08), transparent 55%), var(--bg);
+            color: #eef2ff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1.5rem 3rem;
+            gap: 1.5rem;
+        }
+        header {
+            text-align: center;
+        }
+        header h1 {
+            margin: 0;
+            font-size: clamp(1.6rem, 2vw, 2.1rem);
+            letter-spacing: 0.04em;
+        }
+        header p {
+            margin: 0.5rem 0 0;
+            color: var(--muted);
+        }
+        .panel {
+            width: min(1024px, 100%);
+            background: var(--panel);
+            border-radius: 18px;
+            padding: 1.5rem;
+            box-shadow: 0 1.5rem 3rem rgba(6, 7, 10, 0.6);
+        }
+        form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        label {
+            font-size: 0.95rem;
+            color: var(--muted);
+        }
+        input[type="url"] {
+            flex: 1 0 260px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: inherit;
+            font-size: 1rem;
+            padding: 0.65rem 0.85rem;
+            border-radius: 12px;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+        input[type="url"]:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(76,201,240,0.08);
+        }
+        button {
+            border: none;
+            border-radius: 12px;
+            padding: 0.65rem 1.5rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            cursor: pointer;
+            background: linear-gradient(130deg, #5efce8, var(--accent));
+            color: #031219;
+            box-shadow: 0 0.8rem 1.5rem rgba(76,201,240,0.35);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 1rem 2rem rgba(76,201,240,0.45);
+        }
+        .stream-wrapper {
+            margin-top: 1rem;
+            border-radius: 18px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.07);
+            background: #050607;
+        }
+        #video {
+            width: 100%;
+            height: auto;
+            display: block;
+            background: #050607;
+        }
+        .status-line {
+            margin-top: 0.75rem;
+            color: var(--muted);
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .status-line span {
+            font-weight: 500;
+            color: #f6f6ff;
+        }
+        #stats-container {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 20;
+        }
+        @media (max-width: 600px) {
+            body { padding: 1.5rem 1rem 2rem; }
+            .panel { padding: 1.25rem; }
+            form { flex-direction: column; align-items: stretch; }
+            button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ESP32‑S3 Live MJPEG Stream</h1>
+        <p>Replace the stream URL below to point at your device (default: http://192.168.94.111/)</p>
+    </header>
+
+    <section class="panel">
+        <form id="url-form">
+            <label for="stream-url">Stream URL</label>
+            <input type="url" id="stream-url" name="stream-url" value="http://192.168.94.111/" required>
+            <button type="submit">Start Stream</button>
+        </form>
+
+        <div class="stream-wrapper">
+            <img id="video" src="" alt="MJPEG stream will appear here">
+        </div>
+
+        <div class="status-line">
+            <div>Connection: <span id="status">Idle</span></div>
+            <div>Current endpoint: <span id="active-url">—</span></div>
+            <div>Stream FPS: <span id="fps">—</span></div>
+        </div>
+    </section>
+
+    <div id="stats-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js" integrity="sha512-7N5l/ixu8b26Md6lA+7602bGfO+0tAVwYuuG/RrW9j2YDSsfrNyo9c5BHzW2iY/+3BzYhDsT7muTS8k1m4+law==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+        const form = document.getElementById('url-form');
+        const input = document.getElementById('stream-url');
+        const img = document.getElementById('video');
+        const statusEl = document.getElementById('status');
+        const activeUrlEl = document.getElementById('active-url');
+
+        function updateStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function startStream(url) {
+            if (!url) return;
+            updateStatus('Connecting…');
+            activeUrlEl.textContent = url;
+            img.src = url;
+        }
+
+        form.addEventListener('submit', (ev) => {
+            ev.preventDefault();
+            startStream(input.value.trim());
+        });
+
+        img.addEventListener('load', () => {
+            updateStatus('Streaming');
+        });
+
+        img.addEventListener('error', () => {
+            updateStatus('Stream error – check device/IP');
+        });
+
+        // Auto-start with default value.
+        startStream(input.value.trim());
+
+        // GPU/JS FPS counter (Stats.js).
+        const fpsEl = document.getElementById('fps');
+        let frameCount = 0;
+        let lastBucket = performance.now();
+        img.addEventListener('load', () => {
+            const now = performance.now();
+            frameCount++;
+            if (now - lastBucket >= 1000) {
+                fpsEl.textContent = frameCount.toString();
+                frameCount = 0;
+                lastBucket = now;
+            }
+        });
+
+        if (typeof Stats === 'function') {
+            const stats = new Stats();
+            stats.showPanel(0); // FPS panel
+            document.getElementById('stats-container').appendChild(stats.dom);
+
+            function animate() {
+                stats.begin();
+                stats.end();
+                requestAnimationFrame(animate);
+            }
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
