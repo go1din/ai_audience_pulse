@@ -24,13 +24,12 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_println::println;
-use heapless::String as HeaplessString;
 use static_cell::StaticCell;
 use stream_video_s3::{camera, psram_log};
 use stream_video_s3::camera::Ov2640Resolution;
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
-const FRAME_SIZE: usize = 40 * 1024;
+const FRAME_SIZE: usize = 18 * 1024; // depends on resolution and quality
 
 // Two frame buffers for simple ping-pong (double-buffered) capture.
 static mut FRAME_BUFFER0: [u8; FRAME_SIZE] = [0u8; FRAME_SIZE];
@@ -48,7 +47,7 @@ static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-const CAMERA_JPEG_QUALITY: u8 = 30;
+const CAMERA_JPEG_QUALITY: u8 = 20; // impartant ! its actaually compression level
 const CAMERA_RESOLUTION: Ov2640Resolution = Ov2640Resolution::Vga;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
@@ -123,7 +122,7 @@ async fn wifi_task(
             }
         }
         println!("[wifi] retrying in 2s...");
-        Timer::after_millis(2000).await;
+        Timer::after_millis(2_000).await;
     }
 }
 
@@ -439,66 +438,29 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
-fn find_jpeg_start(buffer: &[u8], from: usize) -> Option<usize> {
-    for i in from..buffer.len().saturating_sub(1) {
-        if buffer[i] == 0xFF && buffer[i + 1] == 0xD8 {
-            return Some(i);
-        }
-    }
-    None
-}
-
-fn find_jpeg_end(buffer: &[u8], from: usize) -> Option<usize> {
-    for i in from..buffer.len().saturating_sub(1) {
-        if buffer[i] == 0xFF && buffer[i + 1] == 0xD9 {
-            return Some(i + 2);
-        }
-    }
-    None
-}
-
-fn find_jpeg_range(buffer: &[u8]) -> Option<(usize, usize)> {
-    let start = find_jpeg_start(buffer, 0)?;
-    let end = find_jpeg_end(buffer, start + 2)?;
-    Some((start, end))
-}
-
-fn jpeg_slice_from<'a>(buffer: &'a [u8]) -> Option<&'a [u8]> {
-    let (start, end) = find_jpeg_range(buffer)?;
-    let full_len = end - start;
-    let max_len = FRAME_SIZE.saturating_sub(start);
-    let copy_len = full_len.min(max_len);
-    Some(&buffer[start..start + copy_len])
-}
-
+#[inline(always)]
 async fn stream_jpeg_frame<S>(socket: &mut S, buffer: &[u8]) -> Result<(), ()>
 where
     S: embedded_io_async::Write,
 {
-    let frame = match jpeg_slice_from(buffer) {
-        Some(f) => f,
-        None => {
-            println!("mjpeg: no complete JPEG frame detected");
-            return Ok(());
-        }
-    };
+    // Arduino-style multipart boundary write: we assume the entire buffer is a valid JPEG frame
+    // and rely on the multipart boundary ("--frame") rather than per-part Content-Length.
+    let hdr = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n";
+    let size = jpeg_len(buffer);
+    // println!("Streaming JPEG frame of size: {} bytes", size);
 
-    let copy_len = frame.len();
-    use core::fmt::Write as _;
-    let mut hdr: HeaplessString<96> = HeaplessString::new();
-    if write!(
-        &mut hdr,
-        "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-        copy_len
-    )
-    .is_err()
-    {
-        return Err(());
-    }
-
-    socket.write_all(hdr.as_bytes()).await.map_err(|_| ())?;
-    socket.write_all(frame).await.map_err(|_| ())?;
+    socket.write_all(hdr).await.map_err(|_| ())?;
+    socket.write_all(&buffer[..size]).await.map_err(|_| ())?; // ship uo to 40kb acrual end of jpeg
     socket.write_all(b"\r\n").await.map_err(|_| ())?;
 
     Ok(())
+}
+
+fn jpeg_len(buffer: &[u8]) -> usize {
+    for i in (1..buffer.len()).rev() {
+        if buffer[i - 1] == 0xFF && buffer[i] == 0xD9 {
+            return i + 1; // include 0xD9
+        }
+    }
+    buffer.len()
 }
