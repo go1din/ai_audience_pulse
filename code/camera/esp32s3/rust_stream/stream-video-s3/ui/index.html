@@ -135,7 +135,7 @@
     <section class="panel">
         <form id="url-form">
             <label for="stream-url">Stream URL</label>
-            <input type="url" id="stream-url" name="stream-url" value="http://192.168.94.111/" required>
+            <input type="url" id="stream-url" name="stream-url" value="http://10.46.156.111/" required>
             <button type="submit">Start Stream</button>
         </form>
 
@@ -151,8 +151,6 @@
     </section>
 
     <div id="stats-container"></div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
         const form = document.getElementById('url-form');
         const input = document.getElementById('stream-url');
@@ -187,32 +185,50 @@
         // Auto-start with default value.
         startStream(input.value.trim());
 
-        // GPU/JS FPS counter (Stats.js).
+        // Stream FPS using stats.js, counting frame arrivals (load events).
         const fpsEl = document.getElementById('fps');
         let frameCount = 0;
         let lastBucket = performance.now();
+
+        let statsInstance = null;
+        let streamPanel = null;
+
+        function ensureStats() {
+            if (statsInstance || typeof Stats === 'undefined') return;
+            statsInstance = new Stats();
+            streamPanel = statsInstance.addPanel(new Stats.Panel('STR', '#0ff', '#002'));
+            const idx = statsInstance.dom.children.length - 1;
+            statsInstance.showPanel(idx);
+            statsInstance.dom.style.position = 'fixed';
+            statsInstance.dom.style.top = '10px';
+            statsInstance.dom.style.left = '10px';
+            statsInstance.dom.style.opacity = '0.9';
+            statsInstance.dom.style.cursor = 'default';
+            document.getElementById('stats-container').appendChild(statsInstance.dom);
+        }
+
+        // Load stats.js lazily.
+        (function loadStats() {
+            const script = document.createElement('script');
+            script.src = 'https://mrdoob.github.io/stats.js/build/stats.min.js';
+            script.onload = ensureStats;
+            document.head.appendChild(script);
+        })();
+
         img.addEventListener('load', () => {
             const now = performance.now();
             frameCount++;
             if (now - lastBucket >= 1000) {
-                fpsEl.textContent = frameCount.toString();
+                const fps = (frameCount * 1000) / (now - lastBucket);
+                fpsEl.textContent = fps.toFixed(1);
+                if (streamPanel) {
+                    // Update stats.js panel with measured stream FPS (like measuring video frame rate).
+                    streamPanel.update(fps, 60);
+                }
                 frameCount = 0;
                 lastBucket = now;
             }
         });
-
-        if (typeof Stats === 'function') {
-            const stats = new Stats();
-            stats.showPanel(0); // FPS panel
-            document.getElementById('stats-container').appendChild(stats.dom);
-
-            function animate() {
-                stats.begin();
-                stats.end();
-                requestAnimationFrame(animate);
-            }
-            requestAnimationFrame(animate);
-        }
     </script>
 </body>
 </html>

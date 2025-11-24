@@ -48,7 +48,7 @@ static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-const CAMERA_JPEG_QUALITY: u8 = 60;
+const CAMERA_JPEG_QUALITY: u8 = 30;
 const CAMERA_RESOLUTION: Ov2640Resolution = Ov2640Resolution::Vga;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
@@ -137,7 +137,7 @@ async fn mjpeg_task(
     use embassy_net::tcp::TcpSocket;
     use embedded_io_async::Write as _;
     let mut rx_buf = [0u8; 1024];
-    let mut tx_buf = [0u8; 16384];
+    let mut tx_buf = [0u8; 32_768];
     println!("MJPEG streaming server listening on port 80 (path /)");
     loop {
         let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
