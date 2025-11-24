@@ -1,3 +1,3 @@
 After every step run
-env DEBUG=1 timeout 20s cargo run
+export PATH="$HOME/.cargo/bin:$PATH" && export RUSTUP_TOOLCHAIN=esp && source ~/export-esp.sh && unbuffer timeout 40s cargo run
 and if expected output is wrong fix the problem

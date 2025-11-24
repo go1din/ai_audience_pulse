@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-use esp_backtrace as _; // provide panic handler & backtrace output
 use esp_backtrace as _; // provides the panic handler + prints via UART
 
 use embassy_executor::Spawner;
@@ -27,14 +26,8 @@ use esp_hal::{
 use esp_println::println;
 use heapless::String as HeaplessString;
 use static_cell::StaticCell;
-use stream_video_s3::{ov2640_tables, psram_log};
-
-use ov2640_tables::{
-    OV2640_800X600_JPEG,
-    OV2640_JPEG,
-    OV2640_JPEG_INIT,
-    OV2640_YUV422,
-};
+use stream_video_s3::{ov2640, psram_log};
+use stream_video_s3::ov2640::Ov2640Resolution;
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
 const FRAME_SIZE: usize = 40 * 1024;
@@ -55,7 +48,8 @@ static mut DMA_DESCRIPTORS1: [esp_hal::dma::DmaDescriptor; DESC_COUNT] =
 esp_bootloader_esp_idf::esp_app_desc!();
 
 
-const CAMERA_JPEG_QUALITY: u8 = 30;
+const CAMERA_JPEG_QUALITY: u8 = 60;
+const CAMERA_RESOLUTION: Ov2640Resolution = Ov2640Resolution::Vga;
 // Load Wi-Fi credentials generated during build
 const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASS: &str = env!("WIFI_PASS");
@@ -106,7 +100,7 @@ async fn wifi_task(
         println!("[wifi] connecting...");
         match controller.connect() {
             Ok(()) => {
-                println!("[wifi] connected");
+                println!("[wifi] connected. Trying to get DHCP");
                 match with_timeout(TIMEOUT, stack.wait_config_up()).await {
                     Ok(()) => {
                         if let Some(v4) = stack.config_v4() {
@@ -128,6 +122,7 @@ async fn wifi_task(
                 println!("[wifi] connect error: {:?}", e);
             }
         }
+        println!("[wifi] retrying in 2s...");
         Timer::after_millis(2000).await;
     }
 }
@@ -349,27 +344,31 @@ async fn main(spawner: Spawner) -> ! {
     let addr = 0x30;
     println!("Performing OV2640 initialization sequence (ESP-IDF style)...");
     println!("  Step 1: Software reset");
-    ov2640_reset(&mut i2c, addr);
+    ov2640::ov2640_reset(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 2: Loading JPEG base tables");
-    ov2640_load_jpeg_tables(&mut i2c, addr);
+    ov2640::ov2640_load_jpeg_tables(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 2a: Forcing output selector (YUV422 path)");
-    ov2640_force_output_selector(&mut i2c, addr);
+    ov2640::ov2640_force_output_selector(&mut i2c, addr);
     delay.delay_millis(10);
 
-    println!("  Step 3: Configuring JPEG SVGA mode (quality={})", CAMERA_JPEG_QUALITY);
-    ov2640_set_svga_jpeg(&mut i2c, addr, CAMERA_JPEG_QUALITY);
+    println!(
+        "  Step 3: Configuring JPEG {} mode (quality={})",
+        ov2640::resolution_label(CAMERA_RESOLUTION),
+        CAMERA_JPEG_QUALITY
+    );
+    ov2640::ov2640_set_jpeg(&mut i2c, addr, CAMERA_JPEG_QUALITY, CAMERA_RESOLUTION);
     delay.delay_millis(10);
 
     println!("  Step 4: Re-enabling auto controls (AWB/AGC/AEC)");
-    ov2640_re_enable_auto_controls(&mut i2c, addr);
+    ov2640::ov2640_re_enable_auto_controls(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 5: Setting vertical flip (VFLIP)");
-    ov2640_set_vflip(&mut i2c, addr, true);
+    ov2640::ov2640_set_vflip(&mut i2c, addr, true);
     delay.delay_millis(10);
 
     let mut sensor_id = [0u8; 2];
@@ -503,65 +502,4 @@ where
     socket.write_all(b"\r\n").await.map_err(|_| ())?;
 
     Ok(())
-}
-
-fn ov2640_reset<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    let _ = i2c.write(addr, &[0xff, 0x01]);
-    let _ = i2c.write(addr, &[0x12, 0x80]);
-}
-
-fn write_table<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, table: &[(u8, u8)]) {
-    for &(reg, val) in table {
-        if reg == 0xFF && val == 0xFF {
-            break;
-        }
-        let _ = i2c.write(addr, &[reg, val]);
-    }
-}
-
-fn ov2640_load_jpeg_tables<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    write_table(i2c, addr, OV2640_JPEG_INIT);
-    write_table(i2c, addr, OV2640_YUV422);
-    write_table(i2c, addr, OV2640_JPEG);
-}
-
-fn ov2640_force_output_selector<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    // Force the correct output selector (some firmwares flip this)
-    // DSP bank
-    let _ = i2c.write(addr, &[0xFF, 0x00]);
-    let _ = i2c.write(addr, &[0xDA, 0x10]);   // YUV422 path (required for JPEG pipeline)
-    // Note: If still greenish, try UV-swap: change 0xDA, 0x10 to 0xDA, 0x11
-    let _ = i2c.write(addr, &[0xD7, 0x03]);   // auto features enabled (as in esp32-camera)
-}
-
-fn ov2640_re_enable_auto_controls<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8) {
-    // Re-enable auto white balance / exposure / gain after the tables
-    // Sensor bank
-    let _ = i2c.write(addr, &[0xFF, 0x01]);
-    let _ = i2c.write(addr, &[0x13, 0xE7]);   // COM8: AWB|AGC|AEC ON
-}
-
-fn ov2640_set_svga_jpeg<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, quality: u8) {
-    let quality = quality.min(63);
-    let _ = i2c.write(addr, &[0xFF, 0x01]);
-    let _ = i2c.write(addr, &[0x15, 0x00]);
-    write_table(i2c, addr, OV2640_800X600_JPEG);
-    let _ = i2c.write(addr, &[0xFF, 0x00]);
-    let _ = i2c.write(addr, &[0x44, quality]);
-}
-
-fn ov2640_set_vflip<I: embedded_hal::i2c::I2c>(i2c: &mut I, addr: u8, enable: bool) {
-    // Switch to sensor bank and mirror Arduino/esp32-camera behaviour:
-    // enable VFLIP and VREF bits without touching UV order.
-    let _ = i2c.write(addr, &[0xFF, 0x01]);
-    let mut reg04 = [0u8];
-    let _ = i2c.write_read(addr, &[0x04], &mut reg04);
-    let mut new_val = reg04[0];
-    if enable {
-        // Set VREF_EN (0x10) and VFLIP_IMG (0x40)
-        new_val |= 0x50;
-    } else {
-        new_val &= !0x50;
-    }
-    let _ = i2c.write(addr, &[0x04, new_val]);
 }
