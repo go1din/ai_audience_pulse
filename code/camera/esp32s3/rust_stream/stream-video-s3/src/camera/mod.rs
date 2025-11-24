@@ -1,6 +1,14 @@
 #![allow(dead_code)] // driver helpers used by binaries; keep variants/functions visible
 
-use crate::ov2640_tables::{OV2640_640X480_JPEG, OV2640_800X600_JPEG, OV2640_JPEG, OV2640_JPEG_INIT, OV2640_YUV422};
+pub mod ov2640_tables;
+
+use self::ov2640_tables::{
+    OV2640_640X480_JPEG,
+    OV2640_800X600_JPEG,
+    OV2640_JPEG,
+    OV2640_JPEG_INIT,
+    OV2640_YUV422,
+};
 
 #[derive(Clone, Copy)]
 pub enum Ov2640Resolution {

@@ -26,8 +26,8 @@ use esp_hal::{
 use esp_println::println;
 use heapless::String as HeaplessString;
 use static_cell::StaticCell;
-use stream_video_s3::{ov2640, psram_log};
-use stream_video_s3::ov2640::Ov2640Resolution;
+use stream_video_s3::{camera, psram_log};
+use stream_video_s3::camera::Ov2640Resolution;
 
 const HTTP_TASK_POOL_SIZE: usize = 1;
 const FRAME_SIZE: usize = 40 * 1024;
@@ -137,7 +137,6 @@ async fn mjpeg_task(
     use embassy_net::tcp::TcpSocket;
     use embedded_io_async::Write as _;
     let mut rx_buf = [0u8; 1024];
-    // let mut tx_buf = [0u8; 8024];
     let mut tx_buf = [0u8; 16384];
     println!("MJPEG streaming server listening on port 80 (path /)");
     loop {
@@ -344,31 +343,31 @@ async fn main(spawner: Spawner) -> ! {
     let addr = 0x30;
     println!("Performing OV2640 initialization sequence (ESP-IDF style)...");
     println!("  Step 1: Software reset");
-    ov2640::ov2640_reset(&mut i2c, addr);
+    camera::ov2640_reset(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 2: Loading JPEG base tables");
-    ov2640::ov2640_load_jpeg_tables(&mut i2c, addr);
+    camera::ov2640_load_jpeg_tables(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 2a: Forcing output selector (YUV422 path)");
-    ov2640::ov2640_force_output_selector(&mut i2c, addr);
+    camera::ov2640_force_output_selector(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!(
         "  Step 3: Configuring JPEG {} mode (quality={})",
-        ov2640::resolution_label(CAMERA_RESOLUTION),
+        camera::resolution_label(CAMERA_RESOLUTION),
         CAMERA_JPEG_QUALITY
     );
-    ov2640::ov2640_set_jpeg(&mut i2c, addr, CAMERA_JPEG_QUALITY, CAMERA_RESOLUTION);
+    camera::ov2640_set_jpeg(&mut i2c, addr, CAMERA_JPEG_QUALITY, CAMERA_RESOLUTION);
     delay.delay_millis(10);
 
     println!("  Step 4: Re-enabling auto controls (AWB/AGC/AEC)");
-    ov2640::ov2640_re_enable_auto_controls(&mut i2c, addr);
+    camera::ov2640_re_enable_auto_controls(&mut i2c, addr);
     delay.delay_millis(10);
 
     println!("  Step 5: Setting vertical flip (VFLIP)");
-    ov2640::ov2640_set_vflip(&mut i2c, addr, true);
+    camera::ov2640_set_vflip(&mut i2c, addr, true);
     delay.delay_millis(10);
 
     let mut sensor_id = [0u8; 2];
